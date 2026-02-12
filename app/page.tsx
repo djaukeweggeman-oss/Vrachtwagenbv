@@ -204,7 +204,7 @@ export default function Home() {
                                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                         <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Tijd</p>
                                         <p className="text-2xl font-black text-slate-800">
-{Math.round((routeData.routeData.totalDuration ?? 0) / 60)}
+{Math.round((routeData.totalDuration ?? 0) / 60)}
                                         </p>
                                     </div>
                                 </div>
