@@ -1,0 +1,31 @@
+{
+    "name": "route-planner",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start",
+        "lint": "next lint"
+    },
+    "dependencies": {
+        "leaflet": "^1.9.4",
+        "react": "^18",
+        "react-dom": "^18",
+        "react-leaflet": "^4.2.1",
+        "xlsx": "^0.18.5",
+        "next": "14.1.0",
+        "lucide-react": "^0.330.0",
+        "clsx": "^2.1.0",
+        "tailwind-merge": "^2.2.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20",
+        "@types/react": "^18",
+        "@types/react-dom": "^18",
+        "@types/leaflet": "^1.9.8",
+        "typescript": "^5",
+        "eslint": "^8",
+        "eslint-config-next": "14.1.0"
+    }
+}
