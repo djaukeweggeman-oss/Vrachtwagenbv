@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { UploadZone } from '@/components/UploadZone';
 import { ConfigPanel } from '@/components/ConfigPanel';
 import { RouteList } from '@/components/RouteList';
-import { RouteOptimizer, REGIONS } from '@/lib/optimization';
+import { REGIONS } from '@/lib/regions';
 import { Address, RouteResponse } from '@/types';
 import { MapPin, Truck, ChevronRight, User } from 'lucide-react';
 
@@ -53,8 +53,25 @@ export default function Home() {
                 throw new Error(`Geen adressen gevonden voor ${selectedDriver}`);
             }
 
-            console.log(`🗺️ Starting route optimization from ${startRegion}...`);
-            const result = await RouteOptimizer.optimizeRoute(startRegion, driverAddresses);
+            console.log(`🗺️ Starting route optimization from ${startRegion} (server)...`);
+            const res = await fetch('/api/optimize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ startRegion, addresses: driverAddresses })
+                });
+
+                if (!res.ok) {
+                    // Read raw text first, then try to parse JSON for a nicer message
+                    const raw = await res.text();
+                    try {
+                        const obj = JSON.parse(raw);
+                        throw new Error(obj?.error || raw || 'Route optimalisatie faalde');
+                    } catch (_e) {
+                        throw new Error(raw || 'Route optimalisatie faalde');
+                    }
+                }
+
+                const result = await res.json();
             console.log(`✅ Route optimization complete:`, result);
             setRouteData(result);
             setStep(3);
