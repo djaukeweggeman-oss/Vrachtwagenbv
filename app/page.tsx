@@ -198,13 +198,13 @@ export default function Home() {
                                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                         <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Afstand</p>
                                         <p className="text-2xl font-black text-slate-800">
-                                            {Math.round(routeData.distance / 1000).toLocaleString('nl-NL')} <span className="text-sm font-normal text-slate-400">km</span>
+{Math.round((routeData.totalDistance?? 0) / 1000).toLocaleString('nl-NL')}
                                         </p>
                                     </div>
                                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                         <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Tijd</p>
                                         <p className="text-2xl font-black text-slate-800">
-                                            {Math.round(routeData.duration / 60)} <span className="text-sm font-normal text-slate-400">min</span>
+{Math.round((routeData.routeData.totalDuration ?? 0) / 60)}
                                         </p>
                                     </div>
                                 </div>
