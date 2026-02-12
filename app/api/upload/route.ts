@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ExcelProcessor } from '@/lib/excel';
+import { processExcel } from '@/lib/excel';
 
 export async function POST(req: NextRequest) {
     try {
@@ -20,10 +20,9 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const buffer = await file.arrayBuffer();
-        const addresses = await ExcelProcessor.processFile(buffer);
-
-        return NextResponse.json({ addresses });
+        const arrayBuffer = await file.arrayBuffer();
+        const data = await processExcel(arrayBuffer);
+        return NextResponse.json(data);
 
     } catch (error: any) {
         console.error('Processing Error:', error);

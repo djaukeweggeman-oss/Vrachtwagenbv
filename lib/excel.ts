@@ -1,73 +1,93 @@
 import * as XLSX from 'xlsx';
 import { Address, ExcelRow } from '@/types';
 
-export class ExcelProcessor {
-    private static TARGET_MERCHANDISER = "Auke Weggeman";
-    private static HEADER_ROW_INDEX = 8; // Row 9 (0-indexed is 8)
+export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Address[], drivers: string[] }> => {
+    try {
+        console.log("📊 Starting Excel processing...");
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
 
-    static async processFile(buffer: ArrayBuffer): Promise<Address[]> {
-        const workbook = XLSX.read(buffer, { type: 'array' });
+        console.log("📋 Available sheets:", workbook.SheetNames);
 
-        // 1. Find relevant sheet
-        const sheetName = workbook.SheetNames.find(name =>
-            name.toUpperCase().includes('PLANNING WEEK')
-        );
+        // 1. Zoek het blad "PLANNING WEEK 08" (of pak de eerste als fallback)
+        let sheetName = workbook.SheetNames.find(name => name.toUpperCase().includes('PLANNING'));
+        if (!sheetName) sheetName = workbook.SheetNames[0];
 
         if (!sheetName) {
-            throw new Error('Geen tabblad gevonden met naam "PLANNING WEEK..."');
+            throw new Error("Geen tabblad gevonden in het bestand.");
         }
 
-        const sheet = workbook.Sheets[sheetName];
+        console.log("✅ Using sheet:", sheetName);
 
-        // 2. Parse data with explicit header row
-        // range: 8 means start reading from row 9 (index 8)
-        const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(sheet, {
-            range: this.HEADER_ROW_INDEX,
-            defval: ""
-        });
+        const worksheet = workbook.Sheets[sheetName];
 
-        if (jsonData.length === 0) {
-            throw new Error('Geen data gevonden in het tabblad');
+        // 2. Converteer naar JSON, startend vanaf rij 9 (header row)
+        // range: 8 betekent start bij index 8 (dus rij 9 in Excel)
+        const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: 8, defval: "" });
+
+        console.log(`📝 Found ${jsonData.length} rows in Excel`);
+        if (jsonData.length > 0) {
+            console.log("🔍 First row sample:", JSON.stringify(jsonData[0]));
+            console.log("🔑 Available columns:", Object.keys(jsonData[0]));
         }
 
-        // 3. Filter and Map
-        const addresses: Address[] = jsonData
-            .filter(row => {
-                // Case insensitive check just in case, though requirement says exact match
-                return row['Merchandiser']?.toString().trim() === this.TARGET_MERCHANDISER;
-            })
-            .map(row => {
-                // Validation of required fields
-                if (!row.ADRES || !row.POSTCODE || !row.PLAATSNAAM) {
-                    console.warn('Skipping row due to missing address data:', row);
-                    return null;
-                }
+        const addresses: Address[] = [];
+        const uniqueDrivers = new Set<string>();
 
-                const straat = row.ADRES.trim();
-                const postcode = row.POSTCODE.toString().trim();
-                const plaats = row.PLAATSNAAM.trim();
+        jsonData.forEach((row, index) => {
+            // We hebben minimaal een adres en merchandiser nodig
+            if (row.ADRES && row.Merchandiser) {
 
-                return {
-                    filiaalnr: row.FILIAALNR?.toString() || '',
-                    formule: row.FORMULE || '',
+                const merchandiserName = String(row.Merchandiser).trim();
+                uniqueDrivers.add(merchandiserName);
+
+                // Schoon de data op
+                const straat = String(row.ADRES).trim();
+                const postcode = row.POSTCODE ? String(row.POSTCODE).trim() : '';
+                const plaats = row.PLAATSNAAM ? String(row.PLAATSNAAM).trim() : '';
+
+                // Maak volledig adres voor geocoding
+                const volledigAdres = `${straat}, ${plaats}, Nederland`;
+
+                addresses.push({
+                    filiaalnr: row.FILIAALNR ? String(row.FILIAALNR) : '',
+                    formule: row.FORMULE ? String(row.FORMULE) : '',
                     straat,
                     postcode,
                     plaats,
-                    merchandiser: row.Merchandiser || '',
-                    volledigAdres: `${straat}, ${postcode} ${plaats}`
-                };
-            })
-            .filter((addr): addr is Address => addr !== null);
+                    merchandiser: merchandiserName,
+                    volledigAdres,
+                });
+            } else {
+                if (index < 5) { // Only log first 5 skipped rows to avoid spam
+                    console.log(`⚠️ Skipping row ${index + 9}: ADRES=${row.ADRES}, Merchandiser=${row.Merchandiser}`);
+                }
+            }
+        });
 
-        // 4. Deduplication based on composite key (address)
-        const uniqueAddresses = Array.from(
-            new Map(addresses.map(item => [item.volledigAdres, item])).values()
+        console.log(`✅ Extracted ${addresses.length} addresses`);
+        console.log(`👥 Found ${uniqueDrivers.size} unique drivers:`, Array.from(uniqueDrivers));
+
+        // Deduplicatie op basis van volledigAdres EN Merchandiser
+        const uniqueAddresses = addresses.filter((addr, index, self) =>
+            index === self.findIndex((t) => (
+                t.volledigAdres === addr.volledigAdres && t.merchandiser === addr.merchandiser
+            ))
         );
 
+        console.log(`🎯 After deduplication: ${uniqueAddresses.length} unique addresses`);
+
         if (uniqueAddresses.length === 0) {
-            throw new Error(`Geen adressen gevonden voor ${this.TARGET_MERCHANDISER}`);
+            console.error("❌ No valid addresses found!");
+            throw new Error("Geen geldige adressen gevonden in het bestand.");
         }
 
-        return uniqueAddresses;
+        return {
+            addresses: uniqueAddresses,
+            drivers: Array.from(uniqueDrivers).sort()
+        };
+
+    } catch (error) {
+        console.error("💥 Excel processing error:", error);
+        throw error;
     }
-}
+};

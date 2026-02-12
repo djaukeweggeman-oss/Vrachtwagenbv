@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { Address } from '@/types';
 
 interface UploadZoneProps {
-    onUploadComplete: (addresses: Address[]) => void;
+    onUploadComplete: (data: { addresses: Address[], drivers: string[] }) => void;
 }
 
 export function UploadZone({ onUploadComplete }: UploadZoneProps) {
@@ -48,7 +48,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
                 throw new Error(data.error || 'Er is een fout opgetreden bij het uploaden.');
             }
 
-            onUploadComplete(data.addresses);
+            onUploadComplete(data);
         } catch (err: any) {
             setError(err.message);
         } finally {
