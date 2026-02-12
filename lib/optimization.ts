@@ -1,20 +1,5 @@
 import { Address } from '@/types';
-
-// Startpunten configuratie
-export const REGIONS = {
-    ARNHEM: {
-        name: 'Arnhem',
-        address: 'Vlamoven 7, Arnhem',
-        lat: 51.9866,
-        lng: 5.9525
-    },
-    UTRECHT: {
-        name: 'Utrecht',
-        address: 'Franciscusdreef 68, Utrecht',
-        lat: 52.1260,
-        lng: 5.1054
-    }
-};
+import { REGIONS } from './regions';
 
 export class RouteOptimizer {
 
@@ -50,7 +35,7 @@ export class RouteOptimizer {
         }
     }
 
-    static async optimizeRoute(startRegion: keyof typeof REGIONS, addresses: Address[]): Promise<{ stops: Address[], distance: number, duration: number }> {
+    static async optimizeRoute(startRegion: keyof typeof REGIONS, addresses: Address[]): Promise<{ stops: Address[], totalDistance: number, totalDuration: number }> {
         const startPoint = REGIONS[startRegion];
 
         // 1. Geocode all addresses with RATE LIMITING
@@ -79,14 +64,13 @@ export class RouteOptimizer {
         }
 
         if (validAddresses.length === 0) {
-            // Fallback if nothing found
+            // Fallback if nothing found: return only the START point
             return {
                 stops: [
-                    { ...validAddresses[0], filiaalnr: 'START', straat: startPoint.address, volledigAdres: startPoint.address, formule: 'START', merchandiser: 'SYSTEM', lat: startPoint.lat, lng: startPoint.lng },
-                    ...validAddresses
+                    { filiaalnr: 'START', straat: startPoint.address, volledigAdres: startPoint.address, formule: 'START', merchandiser: 'SYSTEM', postcode: '', plaats: startPoint.name, lat: startPoint.lat, lng: startPoint.lng }
                 ],
-                distance: 0,
-                duration: 0
+                totalDistance: 0,
+                totalDuration: 0
             };
         }
 
@@ -150,8 +134,8 @@ export class RouteOptimizer {
             // The route object keys are the sequence order (0, 1, 2...)
 
             const optimizedOrder: Address[] = [];
-            let totalDistance = 0; // cumulative km
-            let totalDuration = 0; // cumulative min
+            let totalDistanceKm = 0; // cumulative km
+            let totalDurationMin = 0; // cumulative minutes
 
             // Extract route values and sort by key (sequence)
             // Check if 'route' property exists
@@ -212,20 +196,16 @@ export class RouteOptimizer {
 
                 // RouteXL gives cumulative distance in km? Or meters?
                 // Usually km. Let's assume km.
-                if (stop.distance) totalDistance = parseFloat(stop.distance); // This is cumulative distance at this stop
-                // duration is usually minutes?
-                if (stop.arrival) {
-                    // arrival is relative time in minutes from start?
-                    totalDuration = parseFloat(stop.arrival);
-                }
+                if (stop.distance) totalDistanceKm = parseFloat(stop.distance); // cumulative distance in km at this stop
+                if (stop.arrival) totalDurationMin = parseFloat(stop.arrival); // arrival/relative time in minutes
             });
 
             console.log(`Optimized Route: ${optimizedOrder.length} stops`); // DEBUG
 
             return {
                 stops: optimizedOrder,
-                distance: totalDistance * 1000, // Convert km to meters for consistency
-                duration: totalDuration * 60  // Convert min to seconds for consistency
+                totalDistance: totalDistanceKm * 1000, // Convert km to meters
+                totalDuration: totalDurationMin * 60  // Convert minutes to seconds
             };
 
         } catch (e: any) {

@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { REGIONS } from '@/lib/optimization';
+import { REGIONS } from '@/lib/regions';
 import { MapPin } from 'lucide-react';
 
 interface ConfigPanelProps {
