@@ -53,25 +53,19 @@ export default function Home() {
                 throw new Error(`Geen adressen gevonden voor ${selectedDriver}`);
             }
 
-            console.log(`🗺️ Starting route optimization from ${startRegion} (server)...`);
+            console.log(`🗺️ Starting route optimization from ${startRegion} (server-side)...`);
             const res = await fetch('/api/optimize', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ startRegion, addresses: driverAddresses })
-                });
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startRegion, addresses: driverAddresses })
+            });
 
-                if (!res.ok) {
-                    // Read raw text first, then try to parse JSON for a nicer message
-                    const raw = await res.text();
-                    try {
-                        const obj = JSON.parse(raw);
-                        throw new Error(obj?.error || raw || 'Route optimalisatie faalde');
-                    } catch (_e) {
-                        throw new Error(raw || 'Route optimalisatie faalde');
-                    }
-                }
+            if (!res.ok) {
+                const err = await res.text();
+                throw new Error(err || 'Route optimalisatie faalde');
+            }
 
-                const result = await res.json();
+            const result = await res.json();
             console.log(`✅ Route optimization complete:`, result);
             setRouteData(result);
             setStep(3);

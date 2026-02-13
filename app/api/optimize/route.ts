@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Address } from '@/types';
 import { REGIONS } from '@/lib/regions';
 
+// Helper to respect Nominatim rate limits (absolute max 1 request per second)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function geocodeAddress(address: string): Promise<{ lat: number, lng: number } | null> {
@@ -9,10 +10,14 @@ async function geocodeAddress(address: string): Promise<{ lat: number, lng: numb
         const query = encodeURIComponent(address);
         const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=nl&limit=1`;
         const res = await fetch(url, {
-            headers: { 'User-Agent': 'VrachtwagenBV-RoutePlanner/1.0' }
+            headers: {
+                'User-Agent': 'VrachtwagenBV-RoutePlanner/1.0'
+            }
         });
         const data = await res.json();
-        if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        if (data && data.length > 0) {
+            return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        }
         return null;
     } catch (e) {
         console.error('Server geocoding error', e);
@@ -25,8 +30,10 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const startRegion: keyof typeof REGIONS = body.startRegion;
         const addresses: Address[] = body.addresses || [];
+
         const startPoint = REGIONS[startRegion];
 
+        // Geocode addresses if necessary
         const validAddresses: Address[] = [];
         for (const addr of addresses) {
             if (addr.lat && addr.lng) validAddresses.push(addr);
@@ -53,6 +60,7 @@ export async function POST(req: NextRequest) {
 
         const username = process.env.ROUTEXL_USERNAME;
         const password = process.env.ROUTEXL_PASSWORD;
+
         if (!username || !password) {
             return NextResponse.json({ error: 'Server RouteXL credentials ontbreken' }, { status: 500 });
         }
@@ -61,7 +69,10 @@ export async function POST(req: NextRequest) {
 
         const res = await fetch('https://api.routexl.com/tour', {
             method: 'POST',
-            headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
             body: `locations=${encodeURIComponent(JSON.stringify(locations))}`
         });
 
