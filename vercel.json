@@ -1,8 +1,4 @@
 {
-  "env": {
-    "ROUTEXL_USERNAME": "@routexl_username",
-    "ROUTEXL_PASSWORD": "@routexl_password"
-  },
   "buildCommand": "next build",
   "outputDirectory": ".next",
   "framework": "nextjs"
