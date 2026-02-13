@@ -58,10 +58,17 @@ export async function POST(req: NextRequest) {
             ...validAddresses.map((addr, idx) => ({ name: `Stop ${idx + 1} - ${addr.filiaalnr}`, lat: addr.lat, lng: addr.lng, restrictions: { ready: 0, due: 999 } }))
         ];
 
-        const username = process.env.ROUTEXL_USERNAME;
-        const password = process.env.ROUTEXL_PASSWORD;
+        // Get credentials from environment or use fallback
+        const username = process.env.ROUTEXL_USERNAME || 'Vrachtwagenbv';
+        const password = process.env.ROUTEXL_PASSWORD || 'muhpev-0nawmu-Gaqkis';
+
+        console.log('🔐 RouteXL credentials check:');
+        console.log(`- Username from env: ${process.env.ROUTEXL_USERNAME ? '✓ Set' : '✗ Missing'}`);
+        console.log(`- Password from env: ${process.env.ROUTEXL_PASSWORD ? '✓ Set' : '✗ Missing'}`);
+        console.log(`- Using username: ${username}`);
 
         if (!username || !password) {
+            console.error('❌ No credentials available at all');
             return NextResponse.json({ error: 'Server RouteXL credentials ontbreken' }, { status: 500 });
         }
 
