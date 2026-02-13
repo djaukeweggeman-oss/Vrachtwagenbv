@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Address } from '@/types';
 import { REGIONS } from '@/lib/regions';
 
+// RouteXL API credentials - fallback hardcoded values
+const ROUTEXL_USERNAME = process.env.ROUTEXL_USERNAME || 'Vrachtwagenbv';
+const ROUTEXL_PASSWORD = process.env.ROUTEXL_PASSWORD || 'muhpev-0nawmu-Gaqkis';
+
 // Helper to respect Nominatim rate limits (absolute max 1 request per second)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -59,16 +63,15 @@ export async function POST(req: NextRequest) {
         ];
 
         // Get credentials from environment or use fallback
-        const username = process.env.ROUTEXL_USERNAME || 'Vrachtwagenbv';
-        const password = process.env.ROUTEXL_PASSWORD || 'muhpev-0nawmu-Gaqkis';
+        const username = ROUTEXL_USERNAME;
+        const password = ROUTEXL_PASSWORD;
 
-        console.log('🔐 RouteXL credentials check:');
-        console.log(`- Username from env: ${process.env.ROUTEXL_USERNAME ? '✓ Set' : '✗ Missing'}`);
-        console.log(`- Password from env: ${process.env.ROUTEXL_PASSWORD ? '✓ Set' : '✗ Missing'}`);
+        console.log('🔐 RouteXL API Request:');
         console.log(`- Using username: ${username}`);
+        console.log(`- Credentials available: ${username && password ? '✓ YES' : '✗ NO'}`);
 
         if (!username || !password) {
-            console.error('❌ No credentials available at all');
+            console.error('❌ No credentials available');
             return NextResponse.json({ error: 'Server RouteXL credentials ontbreken' }, { status: 500 });
         }
 
