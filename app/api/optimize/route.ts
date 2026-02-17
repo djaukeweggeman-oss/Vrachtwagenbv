@@ -125,7 +125,33 @@ export async function POST(req: NextRequest) {
             if (stop.arrival) totalDurationMin = parseFloat(stop.arrival);
         }
 
-        return NextResponse.json({ stops: optimizedOrder, totalDistance: totalDistanceKm * 1000, totalDuration: totalDurationMin * 60 });
+            // Ensure Arnhem (Vlamoven 7) is always the final stop
+            const arnhemRegion = REGIONS.ARNHEM;
+            const arnhemAddress: Address = {
+                filiaalnr: 'ARNHEM',
+                formule: 'ARNHEM',
+                straat: arnhemRegion.address,
+                postcode: '',
+                plaats: arnhemRegion.name,
+                volledigAdres: arnhemRegion.address,
+                merchandiser: 'SYSTEM',
+                lat: arnhemRegion.lat,
+                lng: arnhemRegion.lng
+            };
+
+            const filtered = optimizedOrder.filter(s => {
+                if (!s) return false;
+                if (s.filiaalnr === 'ARNHEM') return false;
+                if (s.plaats && s.plaats.toLowerCase() === arnhemRegion.name.toLowerCase()) return false;
+                if (s.lat && s.lng) {
+                    if (Math.abs(s.lat - arnhemRegion.lat) < 0.0005 && Math.abs(s.lng - arnhemRegion.lng) < 0.0005) return false;
+                }
+                return true;
+            });
+
+            filtered.push(arnhemAddress);
+
+            return NextResponse.json({ stops: filtered, totalDistance: totalDistanceKm * 1000, totalDuration: totalDurationMin * 60 });
 
     } catch (e: any) {
         console.error('Optimize API error', e);
