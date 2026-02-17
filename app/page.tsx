@@ -230,7 +230,7 @@ export default function Home() {
                                             <div className="flex items-center justify-between">
                                                 <div>
                                                     <h3 className="text-2xl font-bold text-slate-900">{day.bezoekdag}</h3>
-                                                    <p className="text-sm text-slate-600 mt-1">{day.stops.length - 2} stops (inclusief start/eind)</p>
+                                                    <p className="text-sm text-slate-600 mt-1">{Math.max(0, day.stops.length - 2)} stops</p>
                                                 </div>
                                                 <div className="flex gap-4">
                                                     <div className="text-right">

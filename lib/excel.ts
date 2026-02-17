@@ -1,6 +1,40 @@
 import * as XLSX from 'xlsx';
 import { Address, ExcelRow } from '@/types';
 
+/**
+ * Convert Excel date serial number to Dutch day name (Maandag, Dinsdag, etc.)
+ * Excel dates start from 1-1-1900, Unix epoch is 1-1-1970
+ */
+function excelDateToDayName(value: any): string | undefined {
+    try {
+        // If already a string that looks like a day name, return it
+        const strVal = String(value).trim();
+        if (['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'].includes(strVal)) {
+            return strVal;
+        }
+
+        // Try to parse as a number (Excel date serial)
+        const numVal = Number(value);
+        if (isNaN(numVal)) {
+            return strVal || undefined; // Return original string if not a number
+        }
+
+        // Convert Excel serial number to JavaScript Date
+        // Excel's epoch is 1-1-1900, but it has a leap year bug, so we use 25569 as offset to Unix epoch
+        const excelEpoch = new Date(1899, 11, 30); // Excel's epoch (accounting for 1900 leap year bug)
+        const date = new Date(excelEpoch.getTime() + numVal * 86400000);
+
+        // Get Dutch day name (Maandag, Dinsdag, etc.)
+        const dayName = date.toLocaleDateString('nl-NL', { weekday: 'long' });
+        
+        // Capitalize first letter (just in case)
+        return dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    } catch (e) {
+        console.warn('Could not convert bezoekdag value:', value, e);
+        return String(value).trim() || undefined;
+    }
+}
+
 export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Address[], drivers: string[] }> => {
     try {
         console.log("📊 Starting Excel processing...");
@@ -75,7 +109,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     merchandiser: merchandiserName,
                     volledigAdres,
                     aantalPlaatsingen,
-                    bezoekdag: row.Bezoekdag ? String(row.Bezoekdag).trim() : undefined,
+                    bezoekdag: excelDateToDayName(row.Bezoekdag),
                 });
             } else {
                 if (index < 5) { // Only log first 5 skipped rows to avoid spam
