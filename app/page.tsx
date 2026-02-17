@@ -232,41 +232,41 @@ export default function Home() {
 
                                     return (
                                     <div key={day.bezoekdag} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-100 animate-in fade-in slide-in-from-bottom-2">
-                                        {/* Day Header */}
-                                        <div className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 p-6">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <h3 className="text-2xl font-bold text-slate-900">{day.bezoekdag}</h3>
+                                        {/* Day Header - Responsive */}
+                                        <div className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 p-4 md:p-6">
+                                            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                                <div className="flex-shrink-0">
+                                                    <h3 className="text-xl md:text-2xl font-bold text-slate-900">{day.bezoekdag}</h3>
                                                     <p className="text-sm text-slate-600 mt-1">{realStopsCount} stops</p>
                                                 </div>
-                                                <div className="flex gap-4">
-                                                    <div className="text-right">
-                                                        <p className="text-xs font-semibold text-slate-500 uppercase">Afstand</p>
-                                                        <p className="text-2xl font-black text-slate-800">{day.totalDistanceKm}</p>
+                                                <div className="grid grid-cols-3 gap-2 md:gap-4 md:flex">
+                                                    <div className="text-center md:text-right">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Afstand</p>
+                                                        <p className="text-lg md:text-2xl font-black text-slate-800 mt-1">{day.totalDistanceKm}</p>
                                                         <p className="text-xs text-slate-500">km</p>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <p className="text-xs font-semibold text-slate-500 uppercase">Reistijd</p>
-                                                        <p className="text-2xl font-black text-slate-800">{day.totalDurationMin}</p>
+                                                    <div className="text-center md:text-right">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Reistijd</p>
+                                                        <p className="text-lg md:text-2xl font-black text-slate-800 mt-1">{day.totalDurationMin}</p>
                                                         <p className="text-xs text-slate-500">min</p>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <p className="text-xs font-semibold text-slate-500 uppercase">Plaatsingen</p>
-                                                        <p className="text-2xl font-black text-blue-600">{day.totalPlaatsingen}</p>
+                                                    <div className="text-center md:text-right">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Plaatsingen</p>
+                                                        <p className="text-lg md:text-2xl font-black text-blue-600 mt-1">{day.totalPlaatsingen}</p>
                                                         <p className="text-xs text-slate-500">items</p>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Day Content */}
-                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
+                                        {/* Day Content - Responsive */}
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 p-4 md:p-6">
                                             {/* Route List */}
                                             <div className="lg:col-span-1">
                                                 <RouteList route={day.stops} />
                                             </div>
                                             {/* Map */}
-                                            <div className="lg:col-span-2 min-h-[400px]">
+                                            <div className="lg:col-span-2 min-h-[300px] md:min-h-[400px]">
                                                 <div className="h-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
                                                     <LeafletMap route={day.stops} />
                                                 </div>
