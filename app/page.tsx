@@ -6,7 +6,8 @@ import { UploadZone } from '@/components/UploadZone';
 import { ConfigPanel } from '@/components/ConfigPanel';
 import { RouteList } from '@/components/RouteList';
 import { REGIONS } from '@/lib/regions';
-import { Address, RouteResponse } from '@/types';
+import { sortDayRoutes } from '@/lib/utils';
+import { Address, RouteResponse, DayRoute } from '@/types';
 import { MapPin, Truck, ChevronRight, User } from 'lucide-react';
 
 const LeafletMap = dynamic(() => import('@/components/LeafletMap'), {
@@ -21,6 +22,7 @@ export default function Home() {
     const [selectedDriver, setSelectedDriver] = useState<string>("");
     const [startRegion, setStartRegion] = useState<keyof typeof REGIONS>('ARNHEM');
     const [routeData, setRouteData] = useState<RouteResponse | null>(null);
+    const [multiDayRoutes, setMultiDayRoutes] = useState<DayRoute[] | null>(null);
 
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -67,7 +69,11 @@ export default function Home() {
 
             const result = await res.json();
             console.log(`✅ Route optimization complete:`, result);
-            setRouteData(result);
+            if (result.days) {
+                setMultiDayRoutes(result.days);
+            } else {
+                setRouteData(result);
+            }
             setStep(3);
         } catch (err: any) {
             console.error(`❌ Route calculation error:`, err);
@@ -187,93 +193,149 @@ export default function Home() {
                 )}
 
                 {/* Step 3: Results */}
-                {step === 3 && routeData && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
-
-                        {/* Left Column: List & Stats */}
-                        <div className="lg:col-span-1 space-y-6">
-
-                            {/* Stats Card */}
-                            <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col gap-4 border border-slate-100">
-                                <div className="flex justify-between items-center pb-4 border-b border-slate-100">
-                                    <div>
-                                        <p className="text-sm text-slate-500 font-medium">Chauffeur</p>
-                                        <p className="text-lg font-bold text-slate-800">{selectedDriver}</p>
-                                    </div>
-                                    <div className="h-10 w-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 font-bold text-xl">
-                                        {routeData.stops.length - 1}
+                {step === 3 && (routeData || multiDayRoutes) && (
+                    <div>
+                        {multiDayRoutes ? (
+                            <div className="space-y-8">
+                                {/* Summary Card */}
+                                <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl shadow-xl p-8 text-white">
+                                    <h2 className="text-3xl font-bold mb-2">Gepland voor {selectedDriver}</h2>
+                                    <p className="text-blue-100 mb-6">Multi-dag route planning</p>
+                                    
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-white/20 backdrop-blur rounded-xl p-4">
+                                            <p className="text-blue-100 text-sm font-medium">Aantal Dagen</p>
+                                            <p className="text-3xl font-bold mt-1">{multiDayRoutes.length}</p>
+                                        </div>
+                                        <div className="bg-white/20 backdrop-blur rounded-xl p-4">
+                                            <p className="text-blue-100 text-sm font-medium">Totale Afstand</p>
+                                            <p className="text-3xl font-bold mt-1">{Math.round(multiDayRoutes.reduce((sum, d) => sum + d.totalDistanceKm, 0)).toLocaleString('nl-NL')} km</p>
+                                        </div>
+                                        <div className="bg-white/20 backdrop-blur rounded-xl p-4">
+                                            <p className="text-blue-100 text-sm font-medium">Totale Tijd</p>
+                                            <p className="text-3xl font-bold mt-1">{Math.round(multiDayRoutes.reduce((sum, d) => sum + d.totalDurationMin, 0) / 60)}u</p>
+                                        </div>
+                                        <div className="bg-white/20 backdrop-blur rounded-xl p-4">
+                                            <p className="text-blue-100 text-sm font-medium">Totale Plaatsingen</p>
+                                            <p className="text-3xl font-bold mt-1">{multiDayRoutes.reduce((sum, d) => sum + d.totalPlaatsingen, 0)}</p>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                        <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Afstand</p>
-                                        <p className="text-2xl font-black text-slate-800">
-{Math.round((routeData.totalDistance?? 0) / 1000).toLocaleString('nl-NL')}
-                                        </p>
+                                {/* Day Cards */}
+                                {sortDayRoutes(multiDayRoutes).map(day => (
+                                    <div key={day.bezoekdag} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-100 animate-in fade-in slide-in-from-bottom-2">
+                                        {/* Day Header */}
+                                        <div className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 p-6">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h3 className="text-2xl font-bold text-slate-900">{day.bezoekdag}</h3>
+                                                    <p className="text-sm text-slate-600 mt-1">{day.stops.length - 2} stops (inclusief start/eind)</p>
+                                                </div>
+                                                <div className="flex gap-4">
+                                                    <div className="text-right">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase">Afstand</p>
+                                                        <p className="text-2xl font-black text-slate-800">{day.totalDistanceKm}</p>
+                                                        <p className="text-xs text-slate-500">km</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase">Reistijd</p>
+                                                        <p className="text-2xl font-black text-slate-800">{day.totalDurationMin}</p>
+                                                        <p className="text-xs text-slate-500">min</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase">Plaatsingen</p>
+                                                        <p className="text-2xl font-black text-blue-600">{day.totalPlaatsingen}</p>
+                                                        <p className="text-xs text-slate-500">items</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Day Content */}
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
+                                            {/* Route List */}
+                                            <div className="lg:col-span-1">
+                                                <RouteList route={day.stops} />
+                                            </div>
+                                            {/* Map */}
+                                            <div className="lg:col-span-2 min-h-[400px]">
+                                                <div className="h-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                                                    <LeafletMap route={day.stops} />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                        <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Tijd</p>
-                                        <p className="text-2xl font-black text-slate-800">
-{Math.round((routeData.totalDuration ?? 0) / 60)}
-                                        </p>
+                                ))}
+
+                                <button onClick={reset} className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-blue-600 hover:bg-blue-50 rounded-xl font-bold transition-all">
+                                    ← Nieuwe Planning
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+                                <div className="lg:col-span-1 space-y-6">
+                                    <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col gap-4 border border-slate-100">
+                                        <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+                                            <div>
+                                                <p className="text-sm text-slate-500 font-medium">Chauffeur</p>
+                                                <p className="text-lg font-bold text-slate-800">{selectedDriver}</p>
+                                            </div>
+                                            <div className="h-10 w-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 font-bold text-xl">
+                                                {routeData!.stops.length - 1}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Afstand</p>
+                                                <p className="text-2xl font-black text-slate-800">{Math.round((routeData?.totalDistance ?? 0) / 1000).toLocaleString('nl-NL')}</p>
+                                            </div>
+                                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Tijd</p>
+                                                <p className="text-2xl font-black text-slate-800">{Math.round((routeData?.totalDuration ?? 0) / 60)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-100 flex flex-col max-h-[600px]">
+                                        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                                                    {routeData!.stops.length}
+                                                </span>
+                                                Stops
+                                            </h3>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => {
+                                                    const csvContent = "data:text/csv;charset=utf-8," + routeData!.stops.map(s => `${s.filiaalnr},${s.formule},${s.straat},${s.plaats}`).join("\n");
+                                                    const encodedUri = encodeURI(csvContent);
+                                                    window.open(encodedUri);
+                                                }} className="p-2 text-slate-400 hover:text-blue-600 transition-colors" title="Download CSV">
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="overflow-y-auto flex-1 p-2">
+                                            <RouteList route={routeData!.stops} />
+                                        </div>
+                                    </div>
+
+                                    <button onClick={reset} className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 rounded-xl font-bold transition-all">Nieuwe Planning</button>
+                                </div>
+
+                                <div className="lg:col-span-2 min-h-[500px] lg:h-[calc(100vh-140px)] sticky top-8">
+                                    <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200 h-full relative group">
+                                        <LeafletMap route={routeData!.stops} />
+                                        <div className="absolute bottom-4 right-4 z-[400]">
+                                            <a href={`https://www.google.com/maps/dir/${routeData!.stops.map(s => encodeURIComponent(s.volledigAdres)).join('/')}`} target="_blank" rel="noopener noreferrer" className="bg-white/90 backdrop-blur text-blue-600 px-4 py-2 rounded-lg font-bold shadow-lg hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2 text-sm">
+                                                <MapPin className="w-4 h-4" /> Open in Google Maps
+                                            </a>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-
-                            <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-100 flex flex-col max-h-[600px]">
-                                <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                                    <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
-                                            {routeData.stops.length}
-                                        </span>
-                                        Stops
-                                    </h3>
-                                    {/* Export Actions */}
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => {
-                                                const csvContent = "data:text/csv;charset=utf-8," +
-                                                    routeData.stops.map(s => `${s.filiaalnr},${s.formule},${s.straat},${s.plaats}`).join("\n");
-                                                const encodedUri = encodeURI(csvContent);
-                                                window.open(encodedUri);
-                                            }}
-                                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                                            title="Download CSV"
-                                        >
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="overflow-y-auto flex-1 p-2">
-                                    <RouteList route={routeData.stops} />
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={reset}
-                                className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 rounded-xl font-bold transition-all"
-                            >
-                                Nieuwe Planning
-                            </button>
-                        </div>
-
-                        {/* Right Column: Map */}
-                        <div className="lg:col-span-2 min-h-[500px] lg:h-[calc(100vh-140px)] sticky top-8">
-                            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200 h-full relative group">
-                                <LeafletMap route={routeData.stops} />
-                                <div className="absolute bottom-4 right-4 z-[400]">
-                                    <a
-                                        href={`https://www.google.com/maps/dir/${routeData.stops.map(s => encodeURIComponent(s.volledigAdres)).join('/')}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="bg-white/90 backdrop-blur text-blue-600 px-4 py-2 rounded-lg font-bold shadow-lg hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2 text-sm"
-                                    >
-                                        <MapPin className="w-4 h-4" /> Open in Google Maps
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
+                        )}
                     </div>
                 )}
             </div>

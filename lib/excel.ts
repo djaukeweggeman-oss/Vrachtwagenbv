@@ -75,6 +75,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     merchandiser: merchandiserName,
                     volledigAdres,
                     aantalPlaatsingen,
+                    bezoekdag: row.Bezoekdag ? String(row.Bezoekdag).trim() : undefined,
                 });
             } else {
                 if (index < 5) { // Only log first 5 skipped rows to avoid spam
@@ -86,14 +87,40 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         console.log(`✅ Extracted ${addresses.length} addresses`);
         console.log(`👥 Found ${uniqueDrivers.size} unique drivers:`, Array.from(uniqueDrivers));
 
-        // Deduplicatie op basis van volledigAdres EN Merchandiser
-        const uniqueAddresses = addresses.filter((addr, index, self) =>
-            index === self.findIndex((t) => (
-                t.volledigAdres === addr.volledigAdres && t.merchandiser === addr.merchandiser
-            ))
-        );
-
-        console.log(`🎯 After deduplication: ${uniqueAddresses.length} unique addresses`);
+        // Check if we have day information for multi-day optimization
+        const hasDayInfo = addresses.some(a => !!a.bezoekdag);
+        
+        // Deduplicatie op basis van volledigAdres EN Merchandiser (EN optionally Bezoekdag)
+        let uniqueAddresses: Address[];
+        if (hasDayInfo) {
+            // If we have day info, deduplicate including day (keep same address on different days separate)
+            // But also sum up plaatsingen for duplicate addresses on the same day
+            const grouped = new Map<string, Address>();
+            
+            for (const addr of addresses) {
+                // Key: "adres|merchandiser|dag" to group duplicates on the same day
+                const key = `${addr.volledigAdres}|${addr.merchandiser}|${addr.bezoekdag}`;
+                
+                if (grouped.has(key)) {
+                    // Already have this address on this day, sum up plaatsingen
+                    const existing = grouped.get(key)!;
+                    existing.aantalPlaatsingen = (existing.aantalPlaatsingen || 0) + (addr.aantalPlaatsingen || 0);
+                } else {
+                    grouped.set(key, { ...addr });
+                }
+            }
+            
+            uniqueAddresses = Array.from(grouped.values());
+            console.log(`🗓️ Day-aware deduplication: ${addresses.length} → ${uniqueAddresses.length} entries (summed plaatsingen)`);
+        } else {
+            // Original deduplication for single-day data
+            uniqueAddresses = addresses.filter((addr, index, self) =>
+                index === self.findIndex((t) => (
+                    t.volledigAdres === addr.volledigAdres && t.merchandiser === addr.merchandiser
+                ))
+            );
+            console.log(`🎯 After deduplication: ${uniqueAddresses.length} unique addresses`);
+        }
 
         if (uniqueAddresses.length === 0) {
             console.error("❌ No valid addresses found!");

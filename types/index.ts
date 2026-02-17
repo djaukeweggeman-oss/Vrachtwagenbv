@@ -9,6 +9,7 @@ export interface Address {
     lat?: number;
     lng?: number;
     aantalPlaatsingen?: number;
+    bezoekdag?: string;
 }
 
 export interface RouteResponse {
@@ -16,6 +17,18 @@ export interface RouteResponse {
     totalDistance?: number;
     totalDuration?: number;
     geometry?: string; // Encoded polyline
+}
+
+export interface DayRoute {
+    bezoekdag: string;
+    stops: Address[];
+    totalDistanceKm: number;
+    totalDurationMin: number;
+    totalPlaatsingen: number;
+}
+
+export interface MultiDayRouteResponse {
+    days: DayRoute[];
 }
 
 export interface ExcelRow {
