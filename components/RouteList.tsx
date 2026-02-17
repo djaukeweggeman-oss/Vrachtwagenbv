@@ -9,6 +9,11 @@ interface RouteListProps {
 export function RouteList({ route }: RouteListProps) {
     if (!route || route.length === 0) return null;
 
+    // Filter out START and ARNHEM/END stops for counting actual visits
+    const realStops = route.filter(stop => 
+        stop.filiaalnr !== 'START' && stop.filiaalnr !== 'ARNHEM' && stop.formule !== 'START' && stop.formule !== 'ARNHEM'
+    );
+
     // Group by address and sum plaatsingen for display (excluding START/END)
     const displayStops = route.map((stop, index) => ({
         ...stop,
@@ -20,7 +25,7 @@ export function RouteList({ route }: RouteListProps) {
             <div className="p-4 border-b border-border bg-gray-50 flex justify-between items-center sticky top-0 z-10">
                 <h2 className="font-semibold flex items-center gap-2">
                     <Navigation className="w-5 h-5 text-primary" />
-                    Route Overzicht ({route.length} stops)
+                    Route Overzicht ({realStops.length} stops)
                 </h2>
             </div>
 
@@ -66,7 +71,7 @@ export function RouteList({ route }: RouteListProps) {
             </div>
 
             <div className="p-4 border-t border-border bg-gray-50 text-center text-xs text-muted-foreground">
-                Scroll voor meer • {route.length} stops
+                Scroll voor meer • {realStops.length} stops
             </div>
         </div>
     );
