@@ -223,14 +223,21 @@ export default function Home() {
                                 </div>
 
                                 {/* Day Cards */}
-                                {sortDayRoutes(multiDayRoutes).map(day => (
+                                {sortDayRoutes(multiDayRoutes).map(day => {
+                                    // Count only real stops (exclude START and ARNHEM/end)
+                                    const realStopsCount = day.stops.filter(stop => 
+                                        stop.filiaalnr !== 'START' && stop.filiaalnr !== 'ARNHEM' && 
+                                        stop.formule !== 'START' && stop.formule !== 'ARNHEM'
+                                    ).length;
+
+                                    return (
                                     <div key={day.bezoekdag} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-100 animate-in fade-in slide-in-from-bottom-2">
                                         {/* Day Header */}
                                         <div className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 p-6">
                                             <div className="flex items-center justify-between">
                                                 <div>
                                                     <h3 className="text-2xl font-bold text-slate-900">{day.bezoekdag}</h3>
-                                                    <p className="text-sm text-slate-600 mt-1">{Math.max(0, day.stops.length - 2)} stops</p>
+                                                    <p className="text-sm text-slate-600 mt-1">{realStopsCount} stops</p>
                                                 </div>
                                                 <div className="flex gap-4">
                                                     <div className="text-right">
@@ -266,7 +273,8 @@ export default function Home() {
                                             </div>
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
 
                                 <button onClick={reset} className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-blue-600 hover:bg-blue-50 rounded-xl font-bold transition-all">
                                     ← Nieuwe Planning
