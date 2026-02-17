@@ -58,6 +58,75 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        // ⭐ CRITICAL: Check for multi-day BEFORE calling RouteXL
+        const hasDayInfo = addresses.some(a => !!a.bezoekdag);
+
+        if (hasDayInfo) {
+            // 🗓️ MULTI-DAY PATH: Optimize per day individually to avoid "too many locations" error
+            console.log('📅 Multi-day route detected. Processing per day...');
+
+            // Group addresses by bezoekdag
+            const dayMap: Record<string, Address[]> = {};
+            for (const a of validAddresses) {
+                const day = (a.bezoekdag || 'Onbekend').toString();
+                if (!dayMap[day]) dayMap[day] = [];
+                dayMap[day].push(a);
+            }
+
+            const dayResults: DayRoute[] = [];
+
+            for (const [day, addrs] of Object.entries(dayMap)) {
+                console.log(`📅 Processing day: ${day} with ${addrs.length} addresses`);
+                
+                // Deduplicate per day on volledigAdres, but sum up plaatsingen
+                const addressMap = new Map<string, Address>();
+                for (const addr of addrs) {
+                    if (addressMap.has(addr.volledigAdres)) {
+                        const existing = addressMap.get(addr.volledigAdres)!;
+                        existing.aantalPlaatsingen = (existing.aantalPlaatsingen || 0) + (addr.aantalPlaatsingen || 0);
+                    } else {
+                        addressMap.set(addr.volledigAdres, { ...addr });
+                    }
+                }
+                
+                const unique = Array.from(addressMap.values());
+                console.log(`✅ After dedup for ${day}: ${addrs.length} → ${unique.length} unique addresses`);
+
+                // Call RouteOptimizer for this day's addresses
+                let optimized;
+                try {
+                    optimized = await RouteOptimizer.optimizeRoute(startRegion, unique);
+                    console.log(`🗺️ Route optimized for ${day}: ${optimized.stops?.length} stops`);
+                } catch (e) {
+                    console.error('Route optimization failed for day', day, e);
+                    // fallback: return the unique list as stops with zero totals
+                    const totalPlaat = unique.reduce((s, a) => s + (a.aantalPlaatsingen || 0), 0);
+                    dayResults.push({
+                        bezoekdag: day,
+                        stops: unique,
+                        totalDistanceKm: 0,
+                        totalDurationMin: 0,
+                        totalPlaatsingen: totalPlaat
+                    });
+                    continue;
+                }
+
+                const totalPlaatsingen = (optimized.stops || []).reduce((s, a) => s + (a.aantalPlaatsingen || 0), 0);
+                dayResults.push({
+                    bezoekdag: day,
+                    stops: optimized.stops,
+                    totalDistanceKm: Math.round((optimized.totalDistance || 0) / 1000),
+                    totalDurationMin: Math.round((optimized.totalDuration || 0) / 60),
+                    totalPlaatsingen
+                });
+            }
+
+            return NextResponse.json({ days: dayResults });
+        }
+
+        // 🚗 SINGLE-DAY PATH: Original behavior - one big route
+        console.log('🚗 Single-day route. Making one optimized route...');
+
         const locations = [
             { name: 'Start', lat: startPoint.lat, lng: startPoint.lng, restrictions: { ready: 0, due: 999 } },
             ...validAddresses.map((addr, idx) => ({ name: `Stop ${idx + 1} - ${addr.filiaalnr}`, lat: addr.lat, lng: addr.lng, restrictions: { ready: 0, due: 999 } }))
@@ -70,6 +139,7 @@ export async function POST(req: NextRequest) {
         console.log('🔐 RouteXL API Request:');
         console.log(`- Using username: ${username}`);
         console.log(`- Credentials available: ${username && password ? '✓ YES' : '✗ NO'}`);
+        console.log(`- Number of locations: ${locations.length}`);
 
         if (!username || !password) {
             console.error('❌ No credentials available');
@@ -126,96 +196,33 @@ export async function POST(req: NextRequest) {
             if (stop.arrival) totalDurationMin = parseFloat(stop.arrival);
         }
 
-            // If addresses include 'bezoekdag', group per dag and calculate separate routes
-            const hasDayInfo = addresses.some(a => !!a.bezoekdag);
+        // Ensure Arnhem as final stop (existing behavior)
+        const arnhemRegion = REGIONS.ARNHEM;
+        const arnhemAddress: Address = {
+            filiaalnr: 'ARNHEM',
+            formule: 'ARNHEM',
+            straat: arnhemRegion.address,
+            postcode: '',
+            plaats: arnhemRegion.name,
+            volledigAdres: arnhemRegion.address,
+            merchandiser: 'SYSTEM',
+            lat: arnhemRegion.lat,
+            lng: arnhemRegion.lng
+        };
 
-            if (!hasDayInfo) {
-                // Ensure Arnhem as final stop (existing behavior)
-                const arnhemRegion = REGIONS.ARNHEM;
-                const arnhemAddress: Address = {
-                    filiaalnr: 'ARNHEM',
-                    formule: 'ARNHEM',
-                    straat: arnhemRegion.address,
-                    postcode: '',
-                    plaats: arnhemRegion.name,
-                    volledigAdres: arnhemRegion.address,
-                    merchandiser: 'SYSTEM',
-                    lat: arnhemRegion.lat,
-                    lng: arnhemRegion.lng
-                };
-
-                const filtered = optimizedOrder.filter(s => {
-                    if (!s) return false;
-                    if (s.filiaalnr === 'ARNHEM') return false;
-                    if (s.plaats && s.plaats.toLowerCase() === arnhemRegion.name.toLowerCase()) return false;
-                    if (s.lat && s.lng) {
-                        if (Math.abs(s.lat - arnhemRegion.lat) < 0.0005 && Math.abs(s.lng - arnhemRegion.lng) < 0.0005) return false;
-                    }
-                    return true;
-                });
-
-                filtered.push(arnhemAddress);
-
-                return NextResponse.json({ stops: filtered, totalDistance: totalDistanceKm * 1000, totalDuration: totalDurationMin * 60 });
+        const filtered = optimizedOrder.filter(s => {
+            if (!s) return false;
+            if (s.filiaalnr === 'ARNHEM') return false;
+            if (s.plaats && s.plaats.toLowerCase() === arnhemRegion.name.toLowerCase()) return false;
+            if (s.lat && s.lng) {
+                if (Math.abs(s.lat - arnhemRegion.lat) < 0.0005 && Math.abs(s.lng - arnhemRegion.lng) < 0.0005) return false;
             }
+            return true;
+        });
 
-            // Group addresses by bezoekdag for multi-day optimization
-            const dayMap: Record<string, Address[]> = {};
-            for (const a of addresses) {
-                const day = (a.bezoekdag || 'Onbekend').toString();
-                if (!dayMap[day]) dayMap[day] = [];
-                dayMap[day].push(a);
-            }
+        filtered.push(arnhemAddress);
 
-            const dayResults: DayRoute[] = [];
-
-            for (const [day, addrs] of Object.entries(dayMap)) {
-                console.log(`📅 Processing day: ${day} with ${addrs.length} addresses`);
-                
-                // Deduplicate per day on volledigAdres, but sum up plaatsingen
-                const addressMap = new Map<string, Address>();
-                for (const addr of addrs) {
-                    if (addressMap.has(addr.volledigAdres)) {
-                        const existing = addressMap.get(addr.volledigAdres)!;
-                        existing.aantalPlaatsingen = (existing.aantalPlaatsingen || 0) + (addr.aantalPlaatsingen || 0);
-                    } else {
-                        addressMap.set(addr.volledigAdres, { ...addr });
-                    }
-                }
-                
-                const unique = Array.from(addressMap.values());
-                console.log(`✅ After dedup for ${day}: ${addrs.length} → ${unique.length} unique addresses`);
-
-                // Call RouteOptimizer for this day's addresses
-                let optimized;
-                try {
-                    optimized = await RouteOptimizer.optimizeRoute(startRegion, unique);
-                    console.log(`🗺️ Route optimized for ${day}: ${optimized.stops?.length} stops`);
-                } catch (e) {
-                    console.error('Route optimization failed for day', day, e);
-                    // fallback: return the unique list as stops with zero totals
-                    const totalPlaat = unique.reduce((s, a) => s + (a.aantalPlaatsingen || 0), 0);
-                    dayResults.push({
-                        bezoekdag: day,
-                        stops: unique,
-                        totalDistanceKm: 0,
-                        totalDurationMin: 0,
-                        totalPlaatsingen: totalPlaat
-                    });
-                    continue;
-                }
-
-                const totalPlaatsingen = (optimized.stops || []).reduce((s, a) => s + (a.aantalPlaatsingen || 0), 0);
-                dayResults.push({
-                    bezoekdag: day,
-                    stops: optimized.stops,
-                    totalDistanceKm: Math.round((optimized.totalDistance || 0) / 1000),
-                    totalDurationMin: Math.round((optimized.totalDuration || 0) / 60),
-                    totalPlaatsingen
-                });
-            }
-
-            return NextResponse.json({ days: dayResults });
+        return NextResponse.json({ stops: filtered, totalDistance: totalDistanceKm * 1000, totalDuration: totalDurationMin * 60 });
 
     } catch (e: any) {
         console.error('Optimize API error', e);
