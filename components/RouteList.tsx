@@ -46,6 +46,9 @@ export function RouteList({ route }: RouteListProps) {
                                         <MapPin className="w-3.5 h-3.5 shrink-0 text-gray-400" />
                                         {stop.straat}, {stop.plaats}
                                     </p>
+                                    {typeof stop.aantalPlaatsingen !== 'undefined' && (
+                                        <p className="text-sm text-gray-600 mt-1">Aantal plaatsingen: <span className="font-semibold">{stop.aantalPlaatsingen}</span></p>
+                                    )}
                                 </div>
                             </div>
                         </div>

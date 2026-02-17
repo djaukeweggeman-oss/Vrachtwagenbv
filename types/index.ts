@@ -8,6 +8,7 @@ export interface Address {
     merchandiser: string;
     lat?: number;
     lng?: number;
+    aantalPlaatsingen?: number;
 }
 
 export interface RouteResponse {

@@ -48,6 +48,24 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 // Maak volledig adres voor geocoding
                 const volledigAdres = `${straat}, ${plaats}, Nederland`;
 
+                // Bereken aantalPlaatsingen: alle kolommen rechts van 'GRIPPERBOX' tellen met waarde 'JA' (case-insensitive)
+                let aantalPlaatsingen = 0;
+                try {
+                    const cols = Object.keys(row);
+                    const gripperIndex = cols.findIndex(c => String(c).trim().toUpperCase() === 'GRIPPERBOX');
+                    if (gripperIndex >= 0) {
+                        for (let i = gripperIndex + 1; i < cols.length; i++) {
+                            const val = row[cols[i]];
+                            if (val !== null && val !== undefined) {
+                                const s = String(val).trim().toUpperCase();
+                                if (s === 'JA') aantalPlaatsingen++;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Fout bij berekenen aantalPlaatsingen voor rij', index + 9, e);
+                }
+
                 addresses.push({
                     filiaalnr: row.FILIAALNR ? String(row.FILIAALNR) : '',
                     formule: row.FORMULE ? String(row.FORMULE) : '',
@@ -56,6 +74,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     plaats,
                     merchandiser: merchandiserName,
                     volledigAdres,
+                    aantalPlaatsingen,
                 });
             } else {
                 if (index < 5) { // Only log first 5 skipped rows to avoid spam
