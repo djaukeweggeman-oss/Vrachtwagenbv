@@ -87,7 +87,22 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 const filiaalnrIdx = findCol(['FILIAAL', 'SHOP', 'STORE', 'ID']);
                 const formuleIdx = findCol(['FORMULE', 'BRAND', 'KRT']);
                 const bezoekdagIdx = findCol(['BEZOEK', 'DAG', 'DAY']);
-                const gripperboxIdx = findCol(['GRIPPER', 'BOX']);
+
+                // Product columns (Ja/Nee for each brand) come AFTER 'Te verwijderen'
+                // 'Te verwijderen' is the last standard header (col 11 in actual file)
+                // Look for 'VERWIJDER' specifically; if not found, fall back to GOEDGEKEURD+2
+                const teVerwijderenIdx = findCol(['VERWIJDER']);
+                const goedgekeurdIdx2 = findCol(['GOEDGEKEURD']);
+                // productStartIdx: column index of the first product placement column
+                let productStartIdx: number;
+                if (teVerwijderenIdx >= 0) {
+                    productStartIdx = teVerwijderenIdx + 1;
+                } else if (goedgekeurdIdx2 >= 0) {
+                    productStartIdx = goedgekeurdIdx2 + 2; // skip 'Te verwijderen' too
+                } else {
+                    // Last resort: start 4 cols after the last known standard column
+                    productStartIdx = Math.max(adresIdx, mercIdx, plaatsnaamIdx, postcodeIdx) + 4;
+                }
 
                 for (let i = hdrIdx + 1; i < allRows.length; i++) {
                     const row = allRows[i] || [];
@@ -109,14 +124,11 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     const bezoekdag = bezoekdagIdx >= 0 ? excelDateToDayName(row[bezoekdagIdx]) : undefined;
                     const volledigAdres = `${adres}, ${plaats}, Nederland`.replace(/, ,/g, ',').replace(/^, /, '');
 
+                    // Count 'Ja' values in the product placement columns only
                     let aantalPlaatsingen = 0;
-                    if (gripperboxIdx >= 0) {
-                        for (let j = gripperboxIdx + 1; j < row.length; j++) {
-                            const val = row[j];
-                            if (val !== null && val !== undefined && String(val).toUpperCase().includes('JA')) {
-                                aantalPlaatsingen++;
-                            }
-                        }
+                    for (let j = productStartIdx; j < row.length; j++) {
+                        const val = String(row[j] || '').trim().toUpperCase();
+                        if (val === 'JA') aantalPlaatsingen++;
                     }
 
                     resultAddrs.push({
