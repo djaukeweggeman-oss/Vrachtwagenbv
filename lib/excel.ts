@@ -1,33 +1,36 @@
 import * as XLSX from 'xlsx';
-import { Address, ExcelRow } from '@/types';
+import { Address } from '@/types';
 
 /**
- * Convert Excel date serial number to Dutch day name (Maandag, Dinsdag, etc.)
- * Excel dates start from 1-1-1900, Unix epoch is 1-1-1970
+ * Convert Excel date serial number or Dutch date string to day name
  */
 function excelDateToDayName(value: any): string | undefined {
     try {
-        // If already a string that looks like a day name, return it
         const strVal = String(value).trim();
-        if (['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'].includes(strVal)) {
-            return strVal;
-        }
+        const days = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'];
+
+        // Direct match
+        if (days.includes(strVal)) return strVal;
+
+        // Handle common Dutch date strings like "maandag 2 maart"
+        const lowerVal = strVal.toLowerCase();
+        if (lowerVal.includes('maandag')) return 'Maandag';
+        if (lowerVal.includes('dinsdag')) return 'Dinsdag';
+        if (lowerVal.includes('woensdag')) return 'Woensdag';
+        if (lowerVal.includes('donderdag')) return 'Donderdag';
+        if (lowerVal.includes('vrijdag')) return 'Vrijdag';
+        if (lowerVal.includes('zaterdag')) return 'Zaterdag';
+        if (lowerVal.includes('zondag')) return 'Zondag';
 
         // Try to parse as a number (Excel date serial)
         const numVal = Number(value);
         if (isNaN(numVal)) {
-            return strVal || undefined; // Return original string if not a number
+            return strVal || undefined;
         }
 
-        // Convert Excel serial number to JavaScript Date
-        // Excel's epoch is 1-1-1900, but it has a leap year bug, so we use 25569 as offset to Unix epoch
-        const excelEpoch = new Date(1899, 11, 30); // Excel's epoch (accounting for 1900 leap year bug)
+        const excelEpoch = new Date(1899, 11, 30);
         const date = new Date(excelEpoch.getTime() + numVal * 86400000);
-
-        // Get Dutch day name (Maandag, Dinsdag, etc.)
         const dayName = date.toLocaleDateString('nl-NL', { weekday: 'long' });
-
-        // Capitalize first letter (just in case)
         return dayName.charAt(0).toUpperCase() + dayName.slice(1);
     } catch (e) {
         console.warn('Could not convert bezoekdag value:', value, e);
@@ -43,12 +46,13 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         let globalBestResult = { addresses: [] as Address[], drivers: [] as string[], sheetName: "" };
 
-        // Try all sheets that might contain data
-        // Priority: Sheets with "PLANNING", then first sheet, then others
+        // Priority for sheet names
         const sortedSheets = [...workbook.SheetNames].sort((a, b) => {
-            const aHasPlan = a.toUpperCase().includes('PLANNING') ? 1 : 0;
-            const bHasPlan = b.toUpperCase().includes('PLANNING') ? 1 : 0;
-            return bHasPlan - aHasPlan;
+            const aUpper = a.toUpperCase();
+            const bUpper = b.toUpperCase();
+            const aWeight = aUpper.includes('PLANNING') ? 10 : (aUpper.includes('WEEK') ? 5 : 0);
+            const bWeight = bUpper.includes('PLANNING') ? 10 : (bUpper.includes('WEEK') ? 5 : 0);
+            return bWeight - aWeight;
         });
 
         for (const sheetName of sortedSheets) {
@@ -58,24 +62,25 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
             if (!allRows || allRows.length === 0) continue;
 
-            const clean = (val: any) => String(val || '').trim().toUpperCase();
+            // Very lenient cleaner for keyword matching
+            const cleanKey = (val: any) => String(val || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
 
             const parseWithHeader = (hdrIdx: number) => {
-                const resultAddrs: Address[] = [];
-                const resultDrivers = new Set<string>();
                 const hdrRow = allRows[hdrIdx] || [];
-
                 const findCol = (keywords: string[]) => {
                     return hdrRow.findIndex(h => {
-                        const val = clean(h);
-                        return keywords.some(k => val.includes(k.toUpperCase()));
+                        const val = cleanKey(h);
+                        return keywords.some(k => val.includes(cleanKey(k)));
                     });
                 };
 
                 const adresIdx = findCol(['ADRES', 'STRAAT', 'STREET', 'ADDRESS']);
-                const mercIdx = findCol(['MERCHAND', 'CHAUFFEUR', 'DRIVER', 'CHAUF']);
+                const mercIdx = findCol(['MERCHANDISER', 'CHAUFFEUR', 'DRIVER', 'CHAUF']);
 
                 if (adresIdx === -1 || mercIdx === -1) return null;
+
+                const resultAddrs: Address[] = [];
+                const resultDrivers = new Set<string>();
 
                 const plaatsnaamIdx = findCol(['PLAATS', 'CITY', 'TOWN', 'LOCATION']);
                 const postcodeIdx = findCol(['POSTCODE', 'ZIP']);
@@ -91,8 +96,9 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     const adres = String(row[adresIdx] || '').trim();
                     const merchandiser = String(row[mercIdx] || '').trim();
 
+                    // Skip empty mandatory fields or header repetitions
                     if (!adres || !merchandiser) continue;
-                    if (clean(adres) === 'ADRES' || clean(adres).includes('STRAAT')) continue;
+                    if (cleanKey(adres) === cleanKey('ADRES') || cleanKey(adres).includes(cleanKey('STRAAT'))) continue;
 
                     resultDrivers.add(merchandiser);
 
@@ -107,7 +113,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     if (gripperboxIdx >= 0) {
                         for (let j = gripperboxIdx + 1; j < row.length; j++) {
                             const val = row[j];
-                            if (val !== null && val !== undefined && clean(val) === 'JA') {
+                            if (val !== null && val !== undefined && String(val).toUpperCase().includes('JA')) {
                                 aantalPlaatsingen++;
                             }
                         }
@@ -121,25 +127,30 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 return { addresses: resultAddrs, drivers: Array.from(resultDrivers).sort() };
             };
 
+            // Scan first 50 rows for the best possible header in this sheet
             let sheetBest = { addresses: [] as Address[], drivers: [] as string[] };
             for (let r = 0; r < Math.min(allRows.length, 50); r++) {
                 const res = parseWithHeader(r);
                 if (res && res.addresses.length > sheetBest.addresses.length) {
                     sheetBest = res;
-                    if (res.addresses.length > 20) break;
+                    // Optimization: if we found a good amount of data, assume we found the right header
+                    if (res.addresses.length > 50) break;
                 }
             }
 
             if (sheetBest.addresses.length > globalBestResult.addresses.length) {
                 globalBestResult = { ...sheetBest, sheetName };
-                if (sheetBest.addresses.length > 50) break;
+                // Optimization: if we found a lot of data, we are likely done
+                if (sheetBest.addresses.length > 100) break;
             }
         }
 
         if (globalBestResult.addresses.length === 0) {
-            console.error("❌ ALL SHEETS FAILED.");
-            throw new Error("Kon geen geldige gegevens vinden. Zorg dat de kolommen 'Adres' en 'Merchandiser' aanwezig zijn.");
+            console.error("❌ FAILED TO FIND ANY DATA ACROSS ALL SHEETS");
+            throw new Error("Kon geen geldige gegevens vinden. Zorg dat de kolommen 'Adres' en 'Merchandiser' (of 'Chauffeur') aanwezig zijn.");
         }
+
+        console.log(`✅ Success! Found ${globalBestResult.addresses.length} addresses in sheet "${globalBestResult.sheetName}"`);
 
         const { addresses, drivers } = globalBestResult;
         const hasDayInfo = addresses.some(a => !!a.bezoekdag);
@@ -166,6 +177,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         }
 
         return { addresses: uniqueAddresses, drivers };
+
     } catch (error) {
         console.error("💥 Excel processing error:", error);
         throw error;
