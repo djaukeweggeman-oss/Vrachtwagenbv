@@ -54,47 +54,57 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         const worksheet = workbook.Sheets[sheetName];
 
-        // 2. Zoek automatisch de header-rij door naar ADRES en Merchandiser kolommen te zoeken
-        let headerRowIndex = 8; // Default: rij 9 (index 8)
+        // 2. Read first 15 rows as plain arrays to see structure
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+        console.log("📐 Worksheet range:", worksheet['!ref']);
+        
+        // Try to find actual row with data by checking multiple rows
+        let headerRowIndex = 8;
         const maxRowsToCheck = 15;
-        let foundHeaderRow = false;
         
-        for (let i = 0; i < maxRowsToCheck; i++) {
-            const testData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: i, defval: "" });
-            if (testData.length > 0) {
-                const firstRow = testData[0];
-                const allKeys = Object.keys(firstRow);
-                const lowerCaseKeys = allKeys.map(k => k.toUpperCase());
-                
-                console.log(`🔎 Row ${i}: Keys = [${allKeys.join(', ')}]`);
-                
-                if (lowerCaseKeys.some(k => k.includes('ADRES')) && lowerCaseKeys.some(k => k.includes('MERCHANDISER'))) {
-                    headerRowIndex = i;
-                    console.log(`✅ Found headers at row ${i + 1}`);
-                    foundHeaderRow = true;
-                    break;
+        for (let rowIdx = 0; rowIdx < maxRowsToCheck; rowIdx++) {
+            try {
+                const testData = XLSX.utils.sheet_to_json<any>(worksheet, { range: rowIdx, defval: "" });
+                if (testData.length > 0) {
+                    const keys = Object.keys(testData[0]);
+                    const keysStr = keys.slice(0, 10).join(", ");
+                    console.log(`🔎 Row ${rowIdx}: ${keys.length} columns. First 10: [${keysStr}]`);
+                    
+                    // Look for ADRES column
+                    const hasAdres = keys.some(k => k.toUpperCase().includes('ADRES'));
+                    const hasMerchandise = keys.some(k => k.toUpperCase().includes('MERCHANDISER') || k.toUpperCase().includes('MERCHAND'));
+                    
+                    if (hasAdres && hasMerchandise) {
+                        headerRowIndex = rowIdx;
+                        console.log(`✅ FOUND headers at row ${rowIdx}`);
+                        break;
+                    }
                 }
+            } catch (e) {
+                console.log(`⚠️ Error checking row ${rowIdx}:`, e);
             }
-        }
-        
-        if (!foundHeaderRow) {
-            console.warn(`⚠️ Could not find headers with ADRES + MERCHANDISER, using default row 9`);
         }
 
         // 3. Converteer naar JSON met gevonden header-rij
         const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: headerRowIndex, defval: "" });
 
-        console.log(`📝 Found ${jsonData.length} rows in Excel`);
+        console.log(`📝 Found ${jsonData.length} data rows after header row ${headerRowIndex}`);
         if (jsonData.length > 0) {
-            console.log("🔍 First row sample:", JSON.stringify(jsonData[0]));
-            console.log("🔑 Available columns:", Object.keys(jsonData[0]));
+            console.log("🔍 First row sample:", JSON.stringify(jsonData[0]).substring(0, 500));
+            const cols = Object.keys(jsonData[0]);
+            console.log("🔑 All columns:", cols);
         } else {
             console.error("❌ No rows found after header row!");
         }
 
         // Helper function: case-insensitive column lookup
         const getColumnValue = (row: any, columnName: string): string | undefined => {
-            const key = Object.keys(row).find(k => k.toUpperCase() === columnName.toUpperCase());
+            const key = Object.keys(row).find(k => k.toUpperCase().trim() === columnName.toUpperCase().trim());
+            if (!key) {
+                // Try partial match as fallback
+                const partialKey = Object.keys(row).find(k => k.toUpperCase().includes(columnName.toUpperCase()));
+                return partialKey ? String(row[partialKey]).trim() : undefined;
+            }
             const value = key ? String(row[key]).trim() : undefined;
             return value;
         };
