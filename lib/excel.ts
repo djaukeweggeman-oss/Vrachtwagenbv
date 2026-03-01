@@ -75,7 +75,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 };
 
                 const adresIdx = findCol(['ADRES', 'STRAAT', 'STREET', 'ADDRESS']);
-                const mercIdx = findCol(['MERCHANDISER', 'CHAUFFEUR', 'DRIVER', 'CHAUF']);
+                const mercIdx = findCol(['MERCHANDISER', 'MERCHANSIDER', 'MERCHAND', 'MERCHAN', 'CHAUFFEUR', 'DRIVER', 'CHAUF']);
 
                 if (adresIdx === -1 || mercIdx === -1) return null;
 
