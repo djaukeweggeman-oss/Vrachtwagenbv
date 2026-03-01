@@ -52,61 +52,40 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         console.log("✅ Using sheet:", sheetName);
         const worksheet = workbook.Sheets[sheetName];
 
-        // Debug: print first 10 rows as-is
-        console.log("🔍 == RAW WORKSHEET DATA ==");
-        if (worksheet['!ref']) {
-            const range = XLSX.utils.decode_range(worksheet['!ref']);
-            console.log(`Worksheet range: ${worksheet['!ref']} (rows 0-${range.e.r})`);
-
-            // Print first 15 rows, first 5 columns
-            for (let row = 0; row < Math.min(15, range.e.r + 1); row++) {
-                const rowData = [];
-                for (let col = 0; col < Math.min(5, range.e.c + 1); col++) {
-                    const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
-                    const cell = worksheet[cellRef];
-                    rowData.push(cell ? cell.v : "");
-                }
-                console.log(`Row ${row}: [${rowData.join(" | ")}]`);
-            }
-        }
-
-        // Read all rows as arrays so we can locate the real header row by keywords
+        // Read all rows as arrays
         const allRows = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1, defval: "" }) as any[][];
-        console.log(`\n📊 Read ${allRows.length} total rows with header:1 mode`);
+        console.log(`[DEBUG] Total rows read with header:1 mode: ${allRows.length}`);
 
-        // Determine header row by looking for familiar column names
-        let headerRowIdx = -1;
-        const headerKeywords = ['TERRNR', 'MERCHANDISER', 'ADRES', 'POSTCODE', 'PLAATSNAAM'];
-
-        for (let i = 0; i < allRows.length; i++) {
-            const row = allRows[i] as any[];
-            if (!row || row.length === 0) continue;
-            const upper = row.map(c => String(c).toUpperCase().trim());
-            // count matches of keywords as substrings
-            let matches = 0;
-            for (const kw of headerKeywords) {
-                if (upper.some(cell => cell.includes(kw))) {
-                    matches++;
-                }
+        // Parse met de eerste rij als header en kijk hoeveel geldige adressen we krijgen
+        // Dan proberen we alle rijen als mogelijke header totdat we resultaat hebben
+        let bestHeaderIdx = -1;
+        let bestResult = { addresses: [] as Address[], drivers: [] as string[] };
+        
+        // Probeer de eerste 15 rijen als mogelijke header
+        for (let tryIdx = 0; tryIdx < Math.min(allRows.length, 15); tryIdx++) {
+            const result = parseWithHeader(tryIdx);
+            console.log(`[PROBE] Row ${tryIdx}: ${result.addresses.length} addresses`);
+            
+            if (result.addresses.length > bestResult.addresses.length) {
+                bestResult = result;
+                bestHeaderIdx = tryIdx;
             }
-            console.log(`Row ${i}: [${upper.slice(0,10).join(' | ')}] (${matches} keyword matches)`);
-
-            if (matches >= 2) {
-                headerRowIdx = i;
-                console.log(`✅ Header row detected at index ${i}`);
+            
+            // Stop als we al goeie data hebben
+            if (result.addresses.length >= 5) {
+                console.log(`[FOUND] Good data at row ${tryIdx}, stopping`);
                 break;
             }
         }
-
-        if (headerRowIdx === -1) {
-            // if still not found, fallback to 8
-            headerRowIdx = 8;
-            console.warn(`⚠️ Could not auto-detect header row, defaulting to index ${headerRowIdx}`);
+        
+        console.log(`📋 Best header row: index ${bestHeaderIdx} (yielded ${bestResult.addresses.length} addresses)`);
+        
+        if (bestHeaderIdx === -1) {
+            throw new Error("Kon geen geldige header-rij vinden in het bestand");
         }
-
-        // Now parse data properly with the found header row
-        const headerRow = allRows[headerRowIdx];
-        console.log(`\n📋 Header row: [${headerRow.join(" | ")}]`);
+        
+        // Use the best result we found
+        let { addresses, drivers } = bestResult;
 
         // Helper that parses rows starting from a given header index and returns parsed addresses/drivers
         const parseWithHeader = (hdrIdx: number) => {
@@ -114,6 +93,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             const resultDrivers = new Set<string>();
 
             const hdrRow = allRows[hdrIdx] as any[] || [];
+            console.log(`📌 parseWithHeader(${hdrIdx}) hdrRow len=${hdrRow.length} [${hdrRow.slice(0,10).join(' | ')}]`);
 
             const adresIdx = hdrRow.findIndex((h: any) => String(h).toUpperCase().includes('ADRES'));
             const mercIdx = hdrRow.findIndex((h: any) => String(h).toUpperCase().includes('MERCHAND'));
@@ -124,17 +104,30 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             const bezoekdagIdx = hdrRow.findIndex((h: any) => String(h).toUpperCase().includes('BEZOEKDAG'));
             const gripperboxIdx = hdrRow.findIndex((h: any) => String(h).toUpperCase().includes('GRIPPERBOX'));
 
+            console.log(`[parseWithHeader idx=${hdrIdx}] col indices: adres=${adresIdx}, merch=${mercIdx}, plaats=${plaatsnaamIdx}, postcode=${postcodeIdx}`);
+            if (adresIdx === -1 || mercIdx === -1) {
+                console.warn(`[parseWithHeader idx=${hdrIdx}] ABORT: missing ADRES or MERCHANDISER columns`);
+                return { addresses: [], drivers: [] };
+            }
+
+            let validRowCount = 0;
             for (let i = hdrIdx + 1; i < allRows.length; i++) {
                 const row = allRows[i];
                 if (!row || row.length === 0) continue;
 
-                if (adresIdx === -1 || mercIdx === -1) {
+                const adres = row[adresIdx] ? String(row[adresIdx]).trim() : '';
+                const merchandiser = row[mercIdx] ? String(row[mercIdx]).trim() : '';
+                if (!adres || !merchandiser) {
+                    if (validRowCount === 0 && i < hdrIdx + 3) {
+                        console.log(`[parseWithHeader] skip row ${i}: adres="${adres}" merch="${merchandiser}"`);
+                    }
                     continue;
                 }
 
-                const adres = row[adresIdx] ? String(row[adresIdx]).trim() : '';
-                const merchandiser = row[mercIdx] ? String(row[mercIdx]).trim() : '';
-                if (!adres || !merchandiser) continue;
+                if (validRowCount === 0) {
+                    console.log(`[parseWithHeader] FIRST VALID ROW ${i}: adres="${adres}", merch="${merchandiser}"`);
+                }
+                validRowCount++;
 
                 resultDrivers.add(merchandiser);
 
@@ -168,6 +161,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 });
             }
 
+            console.log(`[parseWithHeader idx=${hdrIdx}] RESULT: ${resultAddrs.length} addresses parsed`);
             return { addresses: resultAddrs, drivers: Array.from(resultDrivers).sort() };
         };
 

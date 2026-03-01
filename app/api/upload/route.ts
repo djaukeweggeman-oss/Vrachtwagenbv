@@ -21,13 +21,23 @@ export async function POST(req: NextRequest) {
         }
 
         const arrayBuffer = await file.arrayBuffer();
-        const data = await processExcel(arrayBuffer);
-        return NextResponse.json(data);
+        const result = await processExcel(arrayBuffer);
+        
+        // Log to server console
+        console.log('[UPLOAD] File processed successfully:', {
+            addressCount: result.addresses.length,
+            driverCount: result.drivers.length,
+        });
+        
+        return NextResponse.json(result);
 
     } catch (error: any) {
-        console.error('Processing Error:', error);
+        const errorMsg = error.message || 'Interne server fout bij verwerken bestand';
+        console.error('[UPLOAD] Processing error:', errorMsg);
+        
+        // Send full detailed error to client
         return NextResponse.json(
-            { error: error.message || 'Interne server fout bij verwerken bestand' },
+            { error: errorMsg, details: error.toString() },
             { status: 500 }
         );
     }
