@@ -42,7 +42,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         console.log("📋 Available sheets:", workbook.SheetNames);
 
-        // 1. Zoek het blad "PLANNING WEEK 08" (of pak de eerste als fallback)
+        // 1. Zoek het blad "PLANNING" (of pak de eerste als fallback)
         let sheetName = workbook.SheetNames.find(name => name.toUpperCase().includes('PLANNING'));
         if (!sheetName) sheetName = workbook.SheetNames[0];
 
@@ -54,9 +54,26 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         const worksheet = workbook.Sheets[sheetName];
 
-        // 2. Converteer naar JSON, startend vanaf rij 9 (header row)
-        // range: 8 betekent start bij index 8 (dus rij 9 in Excel)
-        const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: 8, defval: "" });
+        // 2. Zoek automatisch de header-rij door naar ADRES en Merchandiser kolommen te zoeken
+        let headerRowIndex = 8; // Default: rij 9 (index 8)
+        const maxRowsToCheck = 20;
+        
+        for (let i = 0; i < maxRowsToCheck; i++) {
+            const testData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: i, defval: "" });
+            if (testData.length > 0) {
+                const firstRow = testData[0];
+                const lowerCaseKeys = Object.keys(firstRow).map(k => k.toUpperCase());
+                
+                if (lowerCaseKeys.some(k => k.includes('ADRES')) && lowerCaseKeys.some(k => k.includes('MERCHANDISER'))) {
+                    headerRowIndex = i;
+                    console.log(`✅ Found headers at row ${i + 1}`);
+                    break;
+                }
+            }
+        }
+
+        // 3. Converteer naar JSON met gevonden header-rij
+        const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: headerRowIndex, defval: "" });
 
         console.log(`📝 Found ${jsonData.length} rows in Excel`);
         if (jsonData.length > 0) {
@@ -64,20 +81,30 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             console.log("🔑 Available columns:", Object.keys(jsonData[0]));
         }
 
+        // Helper function: case-insensitive column lookup
+        const getColumnValue = (row: any, columnName: string): string | undefined => {
+            const key = Object.keys(row).find(k => k.toUpperCase() === columnName.toUpperCase());
+            return key ? String(row[key]).trim() : undefined;
+        };
+
         const addresses: Address[] = [];
         const uniqueDrivers = new Set<string>();
 
         jsonData.forEach((row, index) => {
-            // We hebben minimaal een adres en merchandiser nodig
-            if (row.ADRES && row.Merchandiser) {
+            // Zoek case-insensitive naar ADRES en Merchandiser
+            const adres = getColumnValue(row, 'ADRES');
+            const merchandiser = getColumnValue(row, 'Merchandiser');
 
-                const merchandiserName = String(row.Merchandiser).trim();
+            // We hebben minimaal een adres en merchandiser nodig
+            if (adres && merchandiser) {
+
+                const merchandiserName = merchandiser;
                 uniqueDrivers.add(merchandiserName);
 
                 // Schoon de data op
-                const straat = String(row.ADRES).trim();
-                const postcode = row.POSTCODE ? String(row.POSTCODE).trim() : '';
-                const plaats = row.PLAATSNAAM ? String(row.PLAATSNAAM).trim() : '';
+                const straat = adres;
+                const postcode = getColumnValue(row, 'POSTCODE') || '';
+                const plaats = getColumnValue(row, 'PLAATSNAAM') || '';
 
                 // Maak volledig adres voor geocoding
                 const volledigAdres = `${straat}, ${plaats}, Nederland`;
@@ -86,7 +113,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 let aantalPlaatsingen = 0;
                 try {
                     const cols = Object.keys(row);
-                    const gripperIndex = cols.findIndex(c => String(c).trim().toUpperCase() === 'GRIPPERBOX');
+                    const gripperIndex = cols.findIndex(c => c.toUpperCase().trim() === 'GRIPPERBOX');
                     if (gripperIndex >= 0) {
                         for (let i = gripperIndex + 1; i < cols.length; i++) {
                             const val = row[cols[i]];
@@ -97,12 +124,12 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                         }
                     }
                 } catch (e) {
-                    console.warn('Fout bij berekenen aantalPlaatsingen voor rij', index + 9, e);
+                    console.warn('Fout bij berekenen aantalPlaatsingen voor rij', index + headerRowIndex + 1, e);
                 }
 
                 addresses.push({
-                    filiaalnr: row.FILIAALNR ? String(row.FILIAALNR) : '',
-                    formule: row.FORMULE ? String(row.FORMULE) : '',
+                    filiaalnr: getColumnValue(row, 'FILIAALNR') || '',
+                    formule: getColumnValue(row, 'FORMULE') || '',
                     straat,
                     postcode,
                     plaats,
@@ -113,7 +140,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 });
             } else {
                 if (index < 5) { // Only log first 5 skipped rows to avoid spam
-                    console.log(`⚠️ Skipping row ${index + 9}: ADRES=${row.ADRES}, Merchandiser=${row.Merchandiser}`);
+                    console.log(`⚠️ Skipping row ${index + headerRowIndex + 1}: ADRES=${adres}, Merchandiser=${merchandiser}`);
                 }
             }
         });
