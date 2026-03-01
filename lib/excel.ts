@@ -56,20 +56,29 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         // 2. Zoek automatisch de header-rij door naar ADRES en Merchandiser kolommen te zoeken
         let headerRowIndex = 8; // Default: rij 9 (index 8)
-        const maxRowsToCheck = 20;
+        const maxRowsToCheck = 15;
+        let foundHeaderRow = false;
         
         for (let i = 0; i < maxRowsToCheck; i++) {
             const testData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: i, defval: "" });
             if (testData.length > 0) {
                 const firstRow = testData[0];
-                const lowerCaseKeys = Object.keys(firstRow).map(k => k.toUpperCase());
+                const allKeys = Object.keys(firstRow);
+                const lowerCaseKeys = allKeys.map(k => k.toUpperCase());
+                
+                console.log(`🔎 Row ${i}: Keys = [${allKeys.join(', ')}]`);
                 
                 if (lowerCaseKeys.some(k => k.includes('ADRES')) && lowerCaseKeys.some(k => k.includes('MERCHANDISER'))) {
                     headerRowIndex = i;
                     console.log(`✅ Found headers at row ${i + 1}`);
+                    foundHeaderRow = true;
                     break;
                 }
             }
+        }
+        
+        if (!foundHeaderRow) {
+            console.warn(`⚠️ Could not find headers with ADRES + MERCHANDISER, using default row 9`);
         }
 
         // 3. Converteer naar JSON met gevonden header-rij
