@@ -79,12 +79,15 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         if (jsonData.length > 0) {
             console.log("🔍 First row sample:", JSON.stringify(jsonData[0]));
             console.log("🔑 Available columns:", Object.keys(jsonData[0]));
+        } else {
+            console.error("❌ No rows found after header row!");
         }
 
         // Helper function: case-insensitive column lookup
         const getColumnValue = (row: any, columnName: string): string | undefined => {
             const key = Object.keys(row).find(k => k.toUpperCase() === columnName.toUpperCase());
-            return key ? String(row[key]).trim() : undefined;
+            const value = key ? String(row[key]).trim() : undefined;
+            return value;
         };
 
         const addresses: Address[] = [];
@@ -185,7 +188,12 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         if (uniqueAddresses.length === 0) {
             console.error("❌ No valid addresses found!");
-            throw new Error("Geen geldige adressen gevonden in het bestand.");
+            console.error("📊 Debug info:", {
+                totalRows: jsonData.length,
+                totalAddresses: addresses.length,
+                headerRowIndex: headerRowIndex
+            });
+            throw new Error(`Geen geldige adressen gevonden in het bestand. Gevonden kolommen: ${jsonData.length > 0 ? Object.keys(jsonData[0]).join(', ') : 'Geen rijen'}`);
         }
 
         return {

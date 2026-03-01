@@ -50,6 +50,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
 
             onUploadComplete(data);
         } catch (err: any) {
+            console.error('Upload error:', err);
             setError(err.message);
         } finally {
             setIsLoading(false);
