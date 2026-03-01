@@ -42,7 +42,6 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         console.log("📋 Available sheets:", workbook.SheetNames);
 
-        // 1. Zoek het blad "PLANNING" (of pak de eerste als fallback)
         let sheetName = workbook.SheetNames.find(name => name.toUpperCase().includes('PLANNING'));
         if (!sheetName) sheetName = workbook.SheetNames[0];
 
@@ -51,123 +50,134 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         }
 
         console.log("✅ Using sheet:", sheetName);
-
         const worksheet = workbook.Sheets[sheetName];
 
-        // 2. Read first 15 rows as plain arrays to see structure
-        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-        console.log("📐 Worksheet range:", worksheet['!ref']);
-        
-        // Try to find actual row with data by checking multiple rows
-        let headerRowIndex = 8;
-        const maxRowsToCheck = 15;
-        
-        for (let rowIdx = 0; rowIdx < maxRowsToCheck; rowIdx++) {
-            try {
-                const testData = XLSX.utils.sheet_to_json<any>(worksheet, { range: rowIdx, defval: "" });
-                if (testData.length > 0) {
-                    const keys = Object.keys(testData[0]);
-                    const keysStr = keys.slice(0, 10).join(", ");
-                    console.log(`🔎 Row ${rowIdx}: ${keys.length} columns. First 10: [${keysStr}]`);
-                    
-                    // Look for ADRES column
-                    const hasAdres = keys.some(k => k.toUpperCase().includes('ADRES'));
-                    const hasMerchandise = keys.some(k => k.toUpperCase().includes('MERCHANDISER') || k.toUpperCase().includes('MERCHAND'));
-                    
-                    if (hasAdres && hasMerchandise) {
-                        headerRowIndex = rowIdx;
-                        console.log(`✅ FOUND headers at row ${rowIdx}`);
-                        break;
-                    }
+        // Debug: print first 10 rows as-is
+        console.log("🔍 == RAW WORKSHEET DATA ==");
+        if (worksheet['!ref']) {
+            const range = XLSX.utils.decode_range(worksheet['!ref']);
+            console.log(`Worksheet range: ${worksheet['!ref']} (rows 0-${range.e.r})`);
+
+            // Print first 15 rows, first 5 columns
+            for (let row = 0; row < Math.min(15, range.e.r + 1); row++) {
+                const rowData = [];
+                for (let col = 0; col < Math.min(5, range.e.c + 1); col++) {
+                    const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+                    const cell = worksheet[cellRef];
+                    rowData.push(cell ? cell.v : "");
                 }
-            } catch (e) {
-                console.log(`⚠️ Error checking row ${rowIdx}:`, e);
+                console.log(`Row ${row}: [${rowData.join(" | ")}]`);
             }
         }
 
-        // 3. Converteer naar JSON met gevonden header-rij
-        const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, { range: headerRowIndex, defval: "" });
-
-        console.log(`📝 Found ${jsonData.length} data rows after header row ${headerRowIndex}`);
-        if (jsonData.length > 0) {
-            console.log("🔍 First row sample:", JSON.stringify(jsonData[0]).substring(0, 500));
-            const cols = Object.keys(jsonData[0]);
-            console.log("🔑 All columns:", cols);
-        } else {
-            console.error("❌ No rows found after header row!");
+        // Try to find data with a simple approach:
+        // Look for first row with both an address-like value and a person's name
+        let headerRowIdx = -1;
+        const allRows = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1 }) as any[][];
+        
+        console.log(`\n📊 Found ${allRows.length} total rows using header:1 mode`);
+        
+        // Find row with ADRES and MERCHANDISER column names
+        for (let i = 0; i < Math.min(15, allRows.length); i++) {
+            const row = allRows[i];
+            if (row && Array.isArray(row)) {
+                const rowStr = row.slice(0, 10).join(" | ");
+                console.log(`Row ${i}: [${rowStr}]`);
+                
+                // Check if this row contains typical header values
+                const rowAsString = row.join(" ").toUpperCase();
+                if (rowAsString.includes('ADRES') && rowAsString.includes('MERCHAND')) {
+                    headerRowIdx = i;
+                    console.log(`✅ Found header row at index ${i}`);
+                    break;
+                }
+            }
         }
 
-        // Helper function: case-insensitive column lookup
-        const getColumnValue = (row: any, columnName: string): string | undefined => {
-            const key = Object.keys(row).find(k => k.toUpperCase().trim() === columnName.toUpperCase().trim());
-            if (!key) {
-                // Try partial match as fallback
-                const partialKey = Object.keys(row).find(k => k.toUpperCase().includes(columnName.toUpperCase()));
-                return partialKey ? String(row[partialKey]).trim() : undefined;
-            }
-            const value = key ? String(row[key]).trim() : undefined;
-            return value;
-        };
+        if (headerRowIdx === -1) {
+            // Fallback: use row 8 (Excel row 9)
+            headerRowIdx = 8;
+            console.log(`⚠️ Using default header row index: ${headerRowIdx}`);
+        }
+
+        // Now parse data properly with the found header row
+        const headerRow = allRows[headerRowIdx];
+        console.log(`\n📋 Header row: [${headerRow.join(" | ")}]`);
 
         const addresses: Address[] = [];
         const uniqueDrivers = new Set<string>();
 
-        jsonData.forEach((row, index) => {
-            // Zoek case-insensitive naar ADRES en Merchandiser
-            const adres = getColumnValue(row, 'ADRES');
-            const merchandiser = getColumnValue(row, 'Merchandiser');
+        // Process all following rows
+        for (let i = headerRowIdx + 1; i < allRows.length; i++) {
+            const row = allRows[i];
+            if (!row || row.length === 0) continue;
 
-            // We hebben minimaal een adres en merchandiser nodig
-            if (adres && merchandiser) {
+            // Find indices of required columns (case-insensitive)
+            const adresIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('ADRES'));
+            const mercIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('MERCHAND'));
+            const plaatsnaamIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('PLAATS'));
+            const postcodeIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('POSTCODE'));
+            const filiaalnrIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('FILIAALNR'));
+            const formuleIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('FORMULE'));
+            const bezoekdagIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('BEZOEKDAG'));
+            const gripperboxIdx = headerRow.findIndex((h: any) => String(h).toUpperCase().includes('GRIPPERBOX'));
 
-                const merchandiserName = merchandiser;
-                uniqueDrivers.add(merchandiserName);
-
-                // Schoon de data op
-                const straat = adres;
-                const postcode = getColumnValue(row, 'POSTCODE') || '';
-                const plaats = getColumnValue(row, 'PLAATSNAAM') || '';
-
-                // Maak volledig adres voor geocoding
-                const volledigAdres = `${straat}, ${plaats}, Nederland`;
-
-                // Bereken aantalPlaatsingen: alle kolommen rechts van 'GRIPPERBOX' tellen met waarde 'JA' (case-insensitive)
-                let aantalPlaatsingen = 0;
-                try {
-                    const cols = Object.keys(row);
-                    const gripperIndex = cols.findIndex(c => c.toUpperCase().trim() === 'GRIPPERBOX');
-                    if (gripperIndex >= 0) {
-                        for (let i = gripperIndex + 1; i < cols.length; i++) {
-                            const val = row[cols[i]];
-                            if (val !== null && val !== undefined) {
-                                const s = String(val).trim().toUpperCase();
-                                if (s === 'JA') aantalPlaatsingen++;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Fout bij berekenen aantalPlaatsingen voor rij', index + headerRowIndex + 1, e);
+            if (adresIdx === -1 || mercIdx === -1) {
+                if (i === headerRowIdx + 1) {
+                    console.warn(`⚠️ Could not find ADRES (${adresIdx}) or MERCHANDISER (${mercIdx}) columns`);
                 }
+                continue;
+            }
 
-                addresses.push({
-                    filiaalnr: getColumnValue(row, 'FILIAALNR') || '',
-                    formule: getColumnValue(row, 'FORMULE') || '',
-                    straat,
-                    postcode,
-                    plaats,
-                    merchandiser: merchandiserName,
-                    volledigAdres,
-                    aantalPlaatsingen,
-                    bezoekdag: excelDateToDayName(row.Bezoekdag),
-                });
-            } else {
-                if (index < 5) { // Only log first 5 skipped rows to avoid spam
-                    console.log(`⚠️ Skipping row ${index + headerRowIndex + 1}: ADRES=${adres}, Merchandiser=${merchandiser}`);
+            const adres = row[adresIdx] ? String(row[adresIdx]).trim() : '';
+            const merchandiser = row[mercIdx] ? String(row[mercIdx]).trim() : '';
+
+            if (!adres || !merchandiser) {
+                if (i === headerRowIdx + 1) {
+                    console.log(`⚠️ Skipping row ${i}, adres="${adres}", merchandiser="${merchandiser}"`);
+                }
+                continue;
+            }
+
+            if (i === headerRowIdx + 1) {
+                console.log(`✅ Successfully parsing! Example row ${i}:`, { adres, merchandiser });
+            }
+
+            uniqueDrivers.add(merchandiser);
+
+            const plaats = plaatsnaamIdx >= 0 && row[plaatsnaamIdx] ? String(row[plaatsnaamIdx]).trim() : '';
+            const postcode = postcodeIdx >= 0 && row[postcodeIdx] ? String(row[postcodeIdx]).trim() : '';
+            const filiaalnr = filiaalnrIdx >= 0 && row[filiaalnrIdx] ? String(row[filiaalnrIdx]) : '';
+            const formule = formuleIdx >= 0 && row[formuleIdx] ? String(row[formuleIdx]) : '';
+            const bezoekdag = bezoekdagIdx >= 0 && row[bezoekdagIdx] ? excelDateToDayName(row[bezoekdagIdx]) : undefined;
+
+            const volledigAdres = `${adres}, ${plaats}, Nederland`;
+
+            // Count JA values after GRIPPERBOX
+            let aantalPlaatsingen = 0;
+            if (gripperboxIdx >= 0) {
+                for (let j = gripperboxIdx + 1; j < row.length; j++) {
+                    const val = row[j];
+                    if (val !== null && val !== undefined && String(val).trim().toUpperCase() === 'JA') {
+                        aantalPlaatsingen++;
+                    }
                 }
             }
-        });
 
-        console.log(`✅ Extracted ${addresses.length} addresses`);
+            addresses.push({
+                filiaalnr,
+                formule,
+                straat: adres,
+                postcode,
+                plaats,
+                merchandiser,
+                volledigAdres,
+                aantalPlaatsingen,
+                bezoekdag,
+            });
+        }
+
+        console.log(`✅ Extracted ${addresses.length} addresses from ${allRows.length - headerRowIdx - 1} data rows`);
         console.log(`👥 Found ${uniqueDrivers.size} unique drivers:`, Array.from(uniqueDrivers));
 
         // Check if we have day information for multi-day optimization
@@ -208,11 +218,11 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         if (uniqueAddresses.length === 0) {
             console.error("❌ No valid addresses found!");
             console.error("📊 Debug info:", {
-                totalRows: jsonData.length,
+                totalRows: allRows.length,
                 totalAddresses: addresses.length,
-                headerRowIndex: headerRowIndex
+                headerRowIndex: headerRowIdx
             });
-            throw new Error(`Geen geldige adressen gevonden in het bestand. Gevonden kolommen: ${jsonData.length > 0 ? Object.keys(jsonData[0]).join(', ') : 'Geen rijen'}`);
+            throw new Error(`Geen geldige adressen gevonden in het bestand. Header kolommen gevonden: ${headerRow.slice(0, 15).join(', ')}`);
         }
 
         return {
