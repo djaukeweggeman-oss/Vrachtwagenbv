@@ -26,7 +26,7 @@ function excelDateToDayName(value: any): string | undefined {
 
         // Get Dutch day name (Maandag, Dinsdag, etc.)
         const dayName = date.toLocaleDateString('nl-NL', { weekday: 'long' });
-        
+
         // Capitalize first letter (just in case)
         return dayName.charAt(0).toUpperCase() + dayName.slice(1);
     } catch (e) {
@@ -56,44 +56,13 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         const allRows = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1, defval: "" }) as any[][];
         console.log(`[DEBUG] Total rows read with header:1 mode: ${allRows.length}`);
 
-        // Parse met de eerste rij als header en kijk hoeveel geldige adressen we krijgen
-        // Dan proberen we alle rijen als mogelijke header totdat we resultaat hebben
-        let bestHeaderIdx = -1;
-        let bestResult = { addresses: [] as Address[], drivers: [] as string[] };
-        
-        // Probeer de eerste 15 rijen als mogelijke header
-        for (let tryIdx = 0; tryIdx < Math.min(allRows.length, 15); tryIdx++) {
-            const result = parseWithHeader(tryIdx);
-            console.log(`[PROBE] Row ${tryIdx}: ${result.addresses.length} addresses`);
-            
-            if (result.addresses.length > bestResult.addresses.length) {
-                bestResult = result;
-                bestHeaderIdx = tryIdx;
-            }
-            
-            // Stop als we al goeie data hebben
-            if (result.addresses.length >= 5) {
-                console.log(`[FOUND] Good data at row ${tryIdx}, stopping`);
-                break;
-            }
-        }
-        
-        console.log(`📋 Best header row: index ${bestHeaderIdx} (yielded ${bestResult.addresses.length} addresses)`);
-        
-        if (bestHeaderIdx === -1) {
-            throw new Error("Kon geen geldige header-rij vinden in het bestand");
-        }
-        
-        // Use the best result we found
-        let { addresses, drivers } = bestResult;
-
         // Helper that parses rows starting from a given header index and returns parsed addresses/drivers
         const parseWithHeader = (hdrIdx: number) => {
             const resultAddrs: Address[] = [];
             const resultDrivers = new Set<string>();
 
             const hdrRow = allRows[hdrIdx] as any[] || [];
-            console.log(`📌 parseWithHeader(${hdrIdx}) hdrRow len=${hdrRow.length} [${hdrRow.slice(0,10).join(' | ')}]`);
+            console.log(`📌 parseWithHeader(${hdrIdx}) hdrRow len=${hdrRow.length} [${hdrRow.slice(0, 10).join(' | ')}]`);
 
             const adresIdx = hdrRow.findIndex((h: any) => String(h).toUpperCase().includes('ADRES'));
             const mercIdx = hdrRow.findIndex((h: any) => String(h).toUpperCase().includes('MERCHAND'));
@@ -107,7 +76,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             console.log(`[parseWithHeader idx=${hdrIdx}] col indices: adres=${adresIdx}, merch=${mercIdx}, plaats=${plaatsnaamIdx}, postcode=${postcodeIdx}`);
             if (adresIdx === -1 || mercIdx === -1) {
                 console.warn(`[parseWithHeader idx=${hdrIdx}] ABORT: missing ADRES or MERCHANDISER columns`);
-                return { addresses: [], drivers: [] };
+                return { addresses: [], drivers: [] as string[] };
             }
 
             let validRowCount = 0;
@@ -163,11 +132,40 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
             console.log(`[parseWithHeader idx=${hdrIdx}] RESULT: ${resultAddrs.length} addresses parsed`);
             return { addresses: resultAddrs, drivers: Array.from(resultDrivers).sort() };
-        };
+        }
 
-        // parse using detected header
-        let { addresses, drivers } = parseWithHeader(headerRowIdx);
-        console.log(`✅ Parsed ${addresses.length} addresses using header index ${headerRowIdx}`);
+        // Parse met de eerste rij als header en kijk hoeveel geldige adressen we krijgen
+        // Dan proberen we alle rijen als mogelijke header totdat we resultaat hebben
+        let bestHeaderIdx = -1;
+        let bestResult = { addresses: [] as Address[], drivers: [] as string[] };
+
+        // Probeer de eerste 15 rijen als mogelijke header
+        for (let tryIdx = 0; tryIdx < Math.min(allRows.length, 15); tryIdx++) {
+            const result = parseWithHeader(tryIdx);
+            console.log(`[PROBE] Row ${tryIdx}: ${result.addresses.length} addresses`);
+
+            if (result.addresses.length > bestResult.addresses.length) {
+                bestResult = result;
+                bestHeaderIdx = tryIdx;
+            }
+
+            // Stop als we al goeie data hebben
+            if (result.addresses.length >= 5) {
+                console.log(`[FOUND] Good data at row ${tryIdx}, stopping`);
+                break;
+            }
+        }
+
+        console.log(`📋 Best header row: index ${bestHeaderIdx} (yielded ${bestResult.addresses.length} addresses)`);
+
+        if (bestHeaderIdx === -1) {
+            throw new Error("Kon geen geldige header-rij vinden in het bestand");
+        }
+
+        // Use the best result we found
+        let addresses = bestResult.addresses;
+        let drivers = bestResult.drivers;
+        let headerRowIdx = bestHeaderIdx;
 
         // if we got nothing, try alternate header rows nearby
         if (addresses.length === 0) {
@@ -190,18 +188,18 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         // Check if we have day information for multi-day optimization
         const hasDayInfo = addresses.some(a => !!a.bezoekdag);
-        
+
         // Deduplicatie op basis van volledigAdres EN Merchandiser (EN optionally Bezoekdag)
         let uniqueAddresses: Address[];
         if (hasDayInfo) {
             // If we have day info, deduplicate including day (keep same address on different days separate)
             // But also sum up plaatsingen for duplicate addresses on the same day
             const grouped = new Map<string, Address>();
-            
+
             for (const addr of addresses) {
                 // Key: "adres|merchandiser|dag" to group duplicates on the same day
                 const key = `${addr.volledigAdres}|${addr.merchandiser}|${addr.bezoekdag}`;
-                
+
                 if (grouped.has(key)) {
                     // Already have this address on this day, sum up plaatsingen
                     const existing = grouped.get(key)!;
@@ -210,7 +208,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     grouped.set(key, { ...addr });
                 }
             }
-            
+
             uniqueAddresses = Array.from(grouped.values());
             console.log(`🗓️ Day-aware deduplication: ${addresses.length} → ${uniqueAddresses.length} entries (summed plaatsingen)`);
         } else {
@@ -230,7 +228,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 totalAddresses: addresses.length,
                 headerRowIndex: headerRowIdx
             });
-            throw new Error(`Geen geldige adressen gevonden in het bestand. Header kolommen gevonden: ${headerRow.slice(0, 15).join(', ')}`);
+            throw new Error(`Geen geldige adressen gevonden in het bestand.`);
         }
 
         return {
