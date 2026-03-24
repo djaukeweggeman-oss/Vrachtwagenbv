@@ -10,18 +10,39 @@ const ROUTEXL_PASSWORD = process.env.ROUTEXL_PASSWORD || 'muhpev-0nawmu-Gaqkis';
 // Helper to respect Nominatim rate limits (absolute max 1 request per second)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Shared cache across API calls
+const geocodeCache = new Map<string, { lat: number, lng: number }>();
+
 async function geocodeAddress(address: string): Promise<{ lat: number, lng: number } | null> {
+    if (geocodeCache.has(address)) return geocodeCache.get(address)!;
+
     try {
+        // 1. Try PDOK API (Dutch National Geocoder) - Blazing fast, NO rate limits
+        const pdokQuery = encodeURIComponent(address.replace(', Nederland', ''));
+        const pdokUrl = `https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=${pdokQuery}&fl=centroide_ll&rows=1`;
+        const pdokRes = await fetch(pdokUrl);
+        const pdokData = await pdokRes.json();
+
+        if (pdokData?.response?.docs?.length > 0) {
+            const match = pdokData.response.docs[0].centroide_ll.match(/POINT\(([\d.]+) ([\d.]+)\)/);
+            if (match) {
+                const coords = { lat: parseFloat(match[2]), lng: parseFloat(match[1]) };
+                geocodeCache.set(address, coords);
+                return coords;
+            }
+        }
+
+        // 2. Fallback to Nominatim OpenStreetMap (Rate limited)
+        await delay(500); 
         const query = encodeURIComponent(address);
         const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=nl&limit=1`;
-        const res = await fetch(url, {
-            headers: {
-                'User-Agent': 'VrachtwagenBV-RoutePlanner/1.0'
-            }
-        });
+        const res = await fetch(url, { headers: { 'User-Agent': 'VrachtwagenBV-RoutePlanner/1.0' } });
         const data = await res.json();
+        
         if (data && data.length > 0) {
-            return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+            const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+            geocodeCache.set(address, coords);
+            return coords;
         }
         return null;
     } catch (e) {
@@ -38,17 +59,19 @@ export async function POST(req: NextRequest) {
 
         const startPoint = REGIONS[startRegion];
 
-        // Geocode addresses if necessary
+        // Geocode addresses in parallel for blazing fast speed
         const validAddresses: Address[] = [];
-        for (const addr of addresses) {
-            if (addr.lat && addr.lng) validAddresses.push(addr);
-            else {
-                await delay(1100);
-                const coords = await geocodeAddress(addr.volledigAdres);
-                if (coords) validAddresses.push({ ...addr, ...coords });
-                else console.warn('Kon adres niet vinden:', addr.volledigAdres);
-            }
-        }
+        
+        const geocodePromises = addresses.map(async (addr) => {
+            if (addr.lat && addr.lng) return addr;
+            const coords = await geocodeAddress(addr.volledigAdres);
+            if (coords) return { ...addr, ...coords };
+            console.warn('Kon adres niet vinden:', addr.volledigAdres);
+            return null;
+        });
+
+        const geocodedResults = await Promise.all(geocodePromises);
+        validAddresses.push(...(geocodedResults.filter(Boolean) as Address[]));
 
         if (validAddresses.length === 0) {
             return NextResponse.json({
