@@ -35,7 +35,7 @@ export class RouteOptimizer {
         }
     }
 
-    static async optimizeRoute(startRegion: keyof typeof REGIONS, addresses: Address[]): Promise<{ stops: Address[], totalDistance: number, totalDuration: number }> {
+    static async optimizeRoute(startRegion: keyof typeof REGIONS, addresses: Address[], credentials?: { username: string, password: string }): Promise<{ stops: Address[], totalDistance: number, totalDuration: number }> {
         const startPoint = REGIONS[startRegion];
 
         // 1. Geocode all addresses with RATE LIMITING
@@ -99,11 +99,12 @@ export class RouteOptimizer {
         ];
 
         // 3. Call RouteXL API
-        const username = process.env.NEXT_PUBLIC_ROUTEXL_USERNAME;
-        const password = process.env.NEXT_PUBLIC_ROUTEXL_PASSWORD;
+        // Accept credentials from caller (server-side) or fall back to env vars (with or without NEXT_PUBLIC_ prefix)
+        const username = credentials?.username || process.env.ROUTEXL_USERNAME || process.env.NEXT_PUBLIC_ROUTEXL_USERNAME;
+        const password = credentials?.password || process.env.ROUTEXL_PASSWORD || process.env.NEXT_PUBLIC_ROUTEXL_PASSWORD;
 
         if (!username || !password) {
-            throw new Error("RouteXL inloggegevens ontbreken. Stel NEXT_PUBLIC_ROUTEXL_USERNAME en NEXT_PUBLIC_ROUTEXL_PASSWORD in.");
+            throw new Error("RouteXL inloggegevens ontbreken. Stel ROUTEXL_USERNAME en ROUTEXL_PASSWORD in in .env.local.");
         }
 
         const auth = btoa(`${username}:${password}`);
@@ -217,11 +218,11 @@ export class RouteOptimizer {
                 lng: arnhemRegion.lng
             };
 
-            // Remove any existing Arnhem-like stops (by filiaalnr or close coords)
+            // Remove any existing synthetic ARNHEM depot entries (by filiaalnr or exact coordinates only)
+            // Do NOT filter by city name - real stops in Arnhem should be kept!
             const filtered = optimizedOrder.filter(s => {
                 if (!s) return false;
-                if (s.filiaalnr === 'ARNHEM') return false;
-                if (s.plaats && s.plaats.toLowerCase() === arnhemRegion.name.toLowerCase()) return false;
+                if (s.filiaalnr === 'ARNHEM') return false; // synthetic depot only
                 if (s.lat && s.lng) {
                     if (Math.abs(s.lat - arnhemRegion.lat) < 0.0005 && Math.abs(s.lng - arnhemRegion.lng) < 0.0005) return false;
                 }

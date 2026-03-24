@@ -113,7 +113,9 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
                     // Skip empty mandatory fields or header repetitions
                     if (!adres || !merchandiser) continue;
-                    if (cleanKey(adres) === cleanKey('ADRES') || cleanKey(adres).includes(cleanKey('STRAAT'))) continue;
+                    // Skip rows where the address cell is literally a column header (not real addresses containing 'straat')
+                    const cleanedAdres = cleanKey(adres);
+                    if (cleanedAdres === 'ADRES' || cleanedAdres === 'STRAAT' || cleanedAdres === 'STREET' || cleanedAdres === 'ADDRESS') continue;
 
                     resultDrivers.add(merchandiser);
 
@@ -122,7 +124,8 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     const filiaalnr = filiaalnrIdx >= 0 ? String(row[filiaalnrIdx] || '').trim() : '';
                     const formule = formuleIdx >= 0 ? String(row[formuleIdx] || '').trim() : '';
                     const bezoekdag = bezoekdagIdx >= 0 ? excelDateToDayName(row[bezoekdagIdx]) : undefined;
-                    const volledigAdres = `${adres}, ${plaats}, Nederland`.replace(/, ,/g, ',').replace(/^, /, '');
+                    // Include postcode so geocoding works even when plaatsnaam is empty
+                    const volledigAdres = [adres, postcode, plaats, 'Nederland'].filter(Boolean).join(', ');
 
                     // Count 'Ja' values in the product placement columns only
                     let aantalPlaatsingen = 0;
@@ -171,7 +174,8 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         if (hasDayInfo) {
             const grouped = new Map<string, Address>();
             for (const addr of addresses) {
-                const key = `${addr.volledigAdres}|${addr.merchandiser}|${addr.bezoekdag}`;
+                // Include filiaalnr in key so different stores at the same address are NOT merged
+                const key = `${addr.filiaalnr}|${addr.volledigAdres}|${addr.merchandiser}|${addr.bezoekdag}`;
                 if (grouped.has(key)) {
                     const existing = grouped.get(key)!;
                     existing.aantalPlaatsingen = (existing.aantalPlaatsingen || 0) + (addr.aantalPlaatsingen || 0);
@@ -183,7 +187,9 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         } else {
             uniqueAddresses = addresses.filter((addr, index, self) =>
                 index === self.findIndex((t) => (
-                    t.volledigAdres === addr.volledigAdres && t.merchandiser === addr.merchandiser
+                    t.filiaalnr === addr.filiaalnr &&
+                    t.volledigAdres === addr.volledigAdres &&
+                    t.merchandiser === addr.merchandiser
                 ))
             );
         }

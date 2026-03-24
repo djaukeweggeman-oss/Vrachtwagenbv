@@ -6,31 +6,28 @@ import 'leaflet/dist/leaflet.css';
 import { Address } from '@/types';
 import L from 'leaflet';
 
-// Fix for default markers in Next.js
-const iconUrl = 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png';
-const iconRetinaUrl = 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png';
-const shadowUrl = 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png';
-
-const DefaultIcon = L.icon({
-    iconUrl,
-    iconRetinaUrl,
-    shadowUrl,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    tooltipAnchor: [16, -28],
-    shadowSize: [41, 41]
-});
-
-L.Marker.prototype.options.icon = DefaultIcon;
-
-// Numbered Icon generator
-const createNumberedIcon = (number: number) => {
+// Numbered circle icon generator
+const createNumberedIcon = (number: number | string, color: string) => {
     return L.divIcon({
-        className: 'custom-div-icon',
-        html: `<div style="background-color: #3b82f6; width: 24px; height: 24px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">${number}</div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12]
+        className: '',
+        html: `<div style="
+            background-color: ${color};
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 13px;
+            border: 2.5px solid white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            font-family: Inter, sans-serif;
+        ">${number}</div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+        popupAnchor: [0, -18],
     });
 };
 
@@ -42,8 +39,9 @@ function MapUpdater({ route }: { route: Address[] }) {
     const map = useMap();
 
     useEffect(() => {
-        if (route.length > 0) {
-            const bounds = L.latLngBounds(route.map(p => [p.lat || 0, p.lng || 0]));
+        const valid = route.filter(p => p.lat && p.lng);
+        if (valid.length > 0) {
+            const bounds = L.latLngBounds(valid.map(p => [p.lat!, p.lng!]));
             map.fitBounds(bounds, { padding: [50, 50] });
         }
     }, [route, map]);
@@ -53,60 +51,143 @@ function MapUpdater({ route }: { route: Address[] }) {
 
 export default function LeafletMap({ route }: MapProps) {
     const [mounted, setMounted] = useState(false);
+    const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
 
     useEffect(() => {
         setMounted(true);
     }, []);
 
-    if (!mounted) return <div className="h-[600px] w-full bg-slate-100 animate-pulse rounded-xl" />;
+    // Restore validRoute which is needed for center and markers
+    const validRoute = route.filter(p => p.lat && p.lng);
 
-    const centerPosition: [number, number] = route.length > 0 && route[0].lat && route[0].lng
-        ? [route[0].lat, route[0].lng]
-        : [52.1326, 5.2913]; // Netherlands center
+    // Effect to fetch actual road routing from OSRM
+    useEffect(() => {
+        const fetchRoute = async () => {
+            if (validRoute.length < 2) {
+                setRouteGeometry(validRoute.map(p => [p.lat!, p.lng!]));
+                return;
+            }
 
-    const polylinePositions = route
-        .filter(p => p.lat && p.lng)
-        .map(p => [p.lat!, p.lng!] as [number, number]);
+            try {
+                // OSRM format: lon,lat;lon,lat;...
+                const coordsString = validRoute.map(p => `${p.lng},${p.lat}`).join(';');
+                const url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+                
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                    // GeoJSON returns [longitude, latitude], Leaflet Polyline expects [latitude, longitude]
+                    const latLngs = data.routes[0].geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
+                    setRouteGeometry(latLngs);
+                } else {
+                    setRouteGeometry(validRoute.map(p => [p.lat!, p.lng!]));
+                }
+            } catch (error) {
+                console.error("Failed to fetch OSRM route geometry", error);
+                setRouteGeometry(validRoute.map(p => [p.lat!, p.lng!]));
+            }
+        };
+
+        fetchRoute();
+    }, [route]);
+
+    if (!mounted) {
+        return <div className="h-full w-full bg-slate-100 animate-pulse rounded-xl" />;
+    }
+
+    const centerPosition: [number, number] = validRoute.length > 0
+        ? [validRoute[0].lat!, validRoute[0].lng!]
+        : [52.1326, 5.2913];
+
+    let stopIndex = 0;
 
     return (
-        <div className="h-[600px] w-full rounded-xl overflow-hidden shadow-sm border border-border z-0">
+        <div style={{ height: '100%', width: '100%', minHeight: '300px' }} className="rounded-xl overflow-hidden">
             <MapContainer
                 center={centerPosition}
-                zoom={8}
+                zoom={9}
                 scrollWheelZoom={true}
                 style={{ height: '100%', width: '100%' }}
+                zoomControl={true}
             >
+                {/* Google Maps Satellite (Hybrid) — 100% gratis, anoniem, geen API key nodig */}
                 <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; Google Maps'
+                    url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+                    maxZoom={20}
                 />
 
                 <MapUpdater route={route} />
 
-                {route.map((stop, index) => (
-                    stop.lat && stop.lng && (
+                {/* Route polyline (Actual roads via OSRM) */}
+                {routeGeometry.length > 1 && (
+                    <>
+                        {/* Shadow line for depth - white for satellite contrast */}
+                        <Polyline
+                            positions={routeGeometry}
+                            color="#ffffff"
+                            weight={8}
+                            opacity={0.6}
+                        />
+                        {/* Main route line */}
+                        <Polyline
+                            positions={routeGeometry}
+                            color="#3b82f6"
+                            weight={4}
+                            opacity={1}
+                        />
+                    </>
+                )}
+
+                {/* Markers */}
+                {validRoute.map((stop, index) => {
+                    const isStart = stop.filiaalnr === 'START';
+                    const isEnd = stop.filiaalnr === 'ARNHEM';
+
+                    let label: string;
+                    let color: string;
+
+                    if (isStart) {
+                        label = '▶';
+                        color = '#16a34a';
+                    } else if (isEnd) {
+                        label = '⬛';
+                        color = '#dc2626';
+                    } else {
+                        stopIndex++;
+                        label = String(stopIndex);
+                        color = '#2563eb';
+                    }
+
+                    return (
                         <Marker
                             key={`${stop.filiaalnr}-${index}`}
-                            position={[stop.lat, stop.lng]}
-                            icon={createNumberedIcon(index + 1)}
+                            position={[stop.lat!, stop.lng!]}
+                            icon={createNumberedIcon(label, color)}
                         >
                             <Popup>
-                                <strong>Stop {index + 1}</strong><br />
-                                {stop.volledigAdres}<br />
-                                {stop.merchandiser}
+                                <div style={{ fontFamily: 'Inter, sans-serif', minWidth: '180px', padding: '2px 0' }}>
+                                    <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, color: '#1e293b' }}>
+                                        {isStart ? '🚦 Startpunt' : isEnd ? '🏁 Eindpunt' : `Stop ${stopIndex}`}
+                                    </p>
+                                    {!isStart && !isEnd && (
+                                        <p style={{ color: '#2563eb', fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
+                                            {stop.formule} #{stop.filiaalnr}
+                                        </p>
+                                    )}
+                                    <p style={{ color: '#475569', fontSize: 13 }}>{stop.straat}</p>
+                                    <p style={{ color: '#475569', fontSize: 13 }}>{stop.postcode} {stop.plaats}</p>
+                                    {(stop.aantalPlaatsingen ?? 0) > 0 && (
+                                        <p style={{ color: '#2563eb', fontSize: 12, marginTop: 6, fontWeight: 600 }}>
+                                            📦 {stop.aantalPlaatsingen} plaatsingen
+                                        </p>
+                                    )}
+                                </div>
                             </Popup>
                         </Marker>
-                    )
-                ))}
-
-                {polylinePositions.length > 1 && (
-                    <Polyline
-                        positions={polylinePositions}
-                        color="#3b82f6"
-                        weight={4}
-                        opacity={0.7}
-                    />
-                )}
+                    );
+                })}
             </MapContainer>
         </div>
     );

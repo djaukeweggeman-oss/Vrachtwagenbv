@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
                 // Call RouteOptimizer for this day's addresses
                 let optimized;
                 try {
-                    optimized = await RouteOptimizer.optimizeRoute(startRegion, unique);
+                    optimized = await RouteOptimizer.optimizeRoute(startRegion, unique, { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD });
                     console.log(`🗺️ Route optimized for ${day}: ${optimized.stops?.length} stops`);
                 } catch (e) {
                     console.error('Route optimization failed for day', day, e);
@@ -210,10 +210,11 @@ export async function POST(req: NextRequest) {
             lng: arnhemRegion.lng
         };
 
+        // Remove any existing synthetic ARNHEM depot entries (by filiaalnr or exact coordinates only)
+        // Do NOT filter by city name - real stops in Arnhem should be kept!
         const filtered = optimizedOrder.filter(s => {
             if (!s) return false;
-            if (s.filiaalnr === 'ARNHEM') return false;
-            if (s.plaats && s.plaats.toLowerCase() === arnhemRegion.name.toLowerCase()) return false;
+            if (s.filiaalnr === 'ARNHEM') return false; // synthetic depot only
             if (s.lat && s.lng) {
                 if (Math.abs(s.lat - arnhemRegion.lat) < 0.0005 && Math.abs(s.lng - arnhemRegion.lng) < 0.0005) return false;
             }
