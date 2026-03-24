@@ -128,8 +128,8 @@ export async function POST(req: NextRequest) {
         console.log('🚗 Single-day route. Making one optimized route...');
 
         const locations = [
-            { name: 'Start', lat: startPoint.lat, lng: startPoint.lng, restrictions: { ready: 0, due: 999 } },
-            ...validAddresses.map((addr, idx) => ({ name: `Stop ${idx + 1} - ${addr.filiaalnr}`, lat: addr.lat, lng: addr.lng, restrictions: { ready: 0, due: 999 } }))
+            { name: 'START_DEPOT', lat: startPoint.lat, lng: startPoint.lng, restrictions: { ready: 0, due: 999 } },
+            ...validAddresses.map((addr, idx) => ({ name: `STOP_${idx}`, lat: addr.lat, lng: addr.lng, restrictions: { ready: 0, due: 999 } }))
         ];
 
         // Get credentials from environment or use fallback
@@ -176,20 +176,26 @@ export async function POST(req: NextRequest) {
 
         for (const key of keys) {
             const stop = data.route[key];
-            if (stop.name === 'Start') {
+            if (stop.name === 'START_DEPOT') {
                 optimizedOrder.push({ filiaalnr: 'START', formule: 'START', straat: startPoint.address, postcode: '', plaats: startPoint.name, volledigAdres: startPoint.address, merchandiser: 'SYSTEM', lat: startPoint.lat, lng: startPoint.lng });
             } else {
-                const nameMatch = stop.name.match(/Stop \d+ - (.+)/);
+                const nameMatch = stop.name.match(/STOP_(\d+)/);
                 let match: Address | undefined = undefined;
+                
                 if (nameMatch) {
-                    const filiaalnr = nameMatch[1];
-                    match = validAddresses.find(a => a.filiaalnr === filiaalnr);
+                    const originalIndex = parseInt(nameMatch[1], 10);
+                    match = validAddresses[originalIndex];
                 }
+                
                 if (!match) {
                     match = validAddresses.find(a => Math.abs(a.lat! - parseFloat(stop.lat)) < 0.001 && Math.abs(a.lng! - parseFloat(stop.lng)) < 0.001);
                 }
-                if (match) optimizedOrder.push(match);
-                else console.warn('Could not match stop back to address:', stop.name);
+                
+                if (match) {
+                    optimizedOrder.push(match);
+                } else {
+                    console.warn('Could not match stop back to address:', stop.name);
+                }
             }
 
             if (stop.distance) totalDistanceKm = parseFloat(stop.distance);

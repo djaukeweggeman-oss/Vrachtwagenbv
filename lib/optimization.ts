@@ -79,7 +79,7 @@ export class RouteOptimizer {
         // The first location is the start point if not specified otherwise
         const locations = [
             {
-                name: "Start",
+                name: "START_DEPOT",
                 lat: startPoint.lat,
                 lng: startPoint.lng,
                 restrictions: {
@@ -88,7 +88,7 @@ export class RouteOptimizer {
                 }
             },
             ...validAddresses.map((addr, index) => ({
-                name: `Stop ${index + 1} - ${addr.filiaalnr}`, // Use unique name
+                name: `STOP_${index}`, // Uniquely identify each stop by its true index
                 lat: addr.lat!,
                 lng: addr.lng!,
                 restrictions: {
@@ -99,7 +99,6 @@ export class RouteOptimizer {
         ];
 
         // 3. Call RouteXL API
-        // Accept credentials from caller (server-side) or fall back to env vars (with or without NEXT_PUBLIC_ prefix)
         const username = credentials?.username || process.env.ROUTEXL_USERNAME || process.env.NEXT_PUBLIC_ROUTEXL_USERNAME;
         const password = credentials?.password || process.env.ROUTEXL_PASSWORD || process.env.NEXT_PUBLIC_ROUTEXL_PASSWORD;
 
@@ -114,8 +113,7 @@ export class RouteOptimizer {
                 method: 'POST',
                 headers: {
                     'Authorization': `Basic ${auth}`,
-                    'Content-Type': 'application/x-www-form-urlencoded' // RouteXL expects form or JSON? JSON usually better but docs vary. Let's try JSON first but RouteXL often uses form data for `locations`.
-                    // Actually, RouteXL documentation says: POST to /tour with `locations` parameter (JSON array).
+                    'Content-Type': 'application/x-www-form-urlencoded'
                 },
                 body: `locations=${encodeURIComponent(JSON.stringify(locations))}`
             });
@@ -129,32 +127,22 @@ export class RouteOptimizer {
             }
 
             const data = await res.json();
-            console.log("RouteXL Response:", JSON.stringify(data, null, 2)); // DEBUG LOGGING
-
-            // RouteXL returns: { id: "tour_id", count: N, ... , route: { "0": {...}, "1": {...} } }
-            // The route object keys are the sequence order (0, 1, 2...)
-
-            const optimizedOrder: Address[] = [];
-            let totalDistanceKm = 0; // cumulative km
-            let totalDurationMin = 0; // cumulative minutes
-
-            // Extract route values and sort by key (sequence)
-            // Check if 'route' property exists
+            
             if (!data.route) {
                 console.error("No route object in response", data);
                 throw new Error("Geen route ontvangen van RouteXL.");
             }
 
+            const optimizedOrder: Address[] = [];
+            let totalDistanceKm = 0;
+            let totalDurationMin = 0;
+
             const routeKeys = Object.keys(data.route).sort((a, b) => parseInt(a) - parseInt(b));
 
             routeKeys.forEach((key) => {
                 const stop = data.route[key];
-                // stop contains: { name, arrival, distance, ... }
 
-                // Find the original address by matching name or coordinates
-                // Our names were "Start" or "Stop N - ID"
-
-                if (stop.name === "Start") {
+                if (stop.name === "START_DEPOT") {
                     optimizedOrder.push({
                         filiaalnr: 'START',
                         formule: 'START',
@@ -167,25 +155,21 @@ export class RouteOptimizer {
                         lng: startPoint.lng
                     });
                 } else {
-                    // Try to find the matching address
-                    // Our names are formatted as "Stop N - FILIAALNR"
-                    // Extract the filiaalnr from the name and match
-
-                    let match = null;
-
-                    // Extract filiaalnr from stop name (format: "Stop 1 - 1498")
-                    const nameMatch = stop.name.match(/Stop \d+ - (.+)/);
+                    // Match the precise index from "STOP_{index}"
+                    const nameMatch = stop.name.match(/STOP_(\d+)/);
+                    let match: Address | null = null;
+                    
                     if (nameMatch) {
-                        const filiaalnr = nameMatch[1];
-                        match = validAddresses.find(a => a.filiaalnr === filiaalnr);
+                        const originalIndex = parseInt(nameMatch[1], 10);
+                        match = validAddresses[originalIndex];
                     }
 
-                    // Fallback to coordinate matching if name matching fails
+                    // Fallback to coordinate matching if name matching completely fails somehow
                     if (!match) {
                         match = validAddresses.find(a =>
                             Math.abs(a.lat! - parseFloat(stop.lat)) < 0.001 &&
                             Math.abs(a.lng! - parseFloat(stop.lng)) < 0.001
-                        );
+                        ) || null;
                     }
 
                     if (match) {
@@ -195,10 +179,8 @@ export class RouteOptimizer {
                     }
                 }
 
-                // RouteXL gives cumulative distance in km? Or meters?
-                // Usually km. Let's assume km.
-                if (stop.distance) totalDistanceKm = parseFloat(stop.distance); // cumulative distance in km at this stop
-                if (stop.arrival) totalDurationMin = parseFloat(stop.arrival); // arrival/relative time in minutes
+                if (stop.distance) totalDistanceKm = parseFloat(stop.distance); 
+                if (stop.arrival) totalDurationMin = parseFloat(stop.arrival); 
             });
 
             console.log(`Optimized Route: ${optimizedOrder.length} stops`); // DEBUG

@@ -84,7 +84,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
                 const plaatsnaamIdx = findCol(['PLAATS', 'CITY', 'TOWN', 'LOCATION']);
                 const postcodeIdx = findCol(['POSTCODE', 'ZIP']);
-                const filiaalnrIdx = findCol(['FILIAAL', 'SHOP', 'STORE', 'ID']);
+                const filiaalnrIdx = findCol(['FILIAAL', 'SHOP', 'STORE', 'WINKEL']);
                 const formuleIdx = findCol(['FORMULE', 'BRAND', 'KRT']);
                 const bezoekdagIdx = findCol(['BEZOEK', 'DAG', 'DAY']);
 
