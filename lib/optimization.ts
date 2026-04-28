@@ -106,26 +106,39 @@ export class RouteOptimizer {
             };
         }
 
-        // 2. Prepare RouteXL locations array
-        // RouteXL expects an array of objects: name, lat, lng
+        // 2. Prepare RouteXL locations array (HARD LIMIT: 10 locations total)
+        const MAX_TOTAL_LOCATIONS = 10;
+        
+        // Check if start and end are essentially the same location (within ~100m)
+        const isLoop = Math.abs(endPoint.lat - startPoint.lat) < 0.001 && 
+                        Math.abs(endPoint.lng - startPoint.lng) < 0.001;
+
+        // How many slots do we have for stops?
+        // 1 slot for START_DEPOT
+        // 1 slot for END_DEPOT if not a loop
+        const reservedSlots = isLoop ? 1 : 2;
+        const availableStopSlots = MAX_TOTAL_LOCATIONS - reservedSlots;
+
+        if (validAddresses.length > availableStopSlots) {
+            console.warn(`RouteXL limit reached. Slicing ${validAddresses.length} stops to ${availableStopSlots} to fit 10-location limit.`);
+        }
+
+        const cappedStops = validAddresses.slice(0, availableStopSlots);
+
         const locations = [
             {
                 name: "START_DEPOT",
                 lat: Number(startPoint.lat.toFixed(6)),
                 lng: Number(startPoint.lng.toFixed(6))
             },
-            ...validAddresses.map((addr, index) => ({
+            ...cappedStops.map((addr, index) => ({
                 name: `STOP_${addr.filiaalnr || index}`,
                 lat: Number(addr.lat!.toFixed(6)),
                 lng: Number(addr.lng!.toFixed(6))
             }))
         ];
 
-        const isLoop = endPoint.lat === startPoint.lat && endPoint.lng === startPoint.lng;
-        
-        // Only add END_DEPOT if it's different from START_DEPOT OR if we have space (max 10 for some plans)
-        // If it's a loop and we're already at 10 locations (1 start + 9 stops), adding END_DEPOT would make it 11 and fail.
-        if (!isLoop || locations.length < 10) {
+        if (!isLoop) {
             locations.push({
                 name: "END_DEPOT",
                 lat: Number(endPoint.lat.toFixed(6)),
