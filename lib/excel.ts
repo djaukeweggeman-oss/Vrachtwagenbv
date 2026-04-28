@@ -194,8 +194,9 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
         if (hasDayInfo) {
             const grouped = new Map<string, Address>();
             for (const addr of addresses) {
-                // Include filiaalnr in key so different stores at the same address are NOT merged
-                const key = `${addr.filiaalnr}|${addr.volledigAdres}|${addr.merchandiser}|${addr.bezoekdag}`;
+                // Key includes filiaalnr, address, merchandiser and day to be safe
+                // We use a combination that is unlikely to collide for different stops
+                const key = `${addr.filiaalnr || ''}|${addr.volledigAdres}|${addr.merchandiser}|${addr.bezoekdag}`;
                 if (grouped.has(key)) {
                     const existing = grouped.get(key)!;
                     existing.aantalPlaatsingen = (existing.aantalPlaatsingen || 0) + (addr.aantalPlaatsingen || 0);
@@ -205,13 +206,17 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             }
             uniqueAddresses = Array.from(grouped.values());
         } else {
-            uniqueAddresses = addresses.filter((addr, index, self) =>
-                index === self.findIndex((t) => (
-                    t.filiaalnr === addr.filiaalnr &&
-                    t.volledigAdres === addr.volledigAdres &&
-                    t.merchandiser === addr.merchandiser
-                ))
-            );
+            const grouped = new Map<string, Address>();
+            for (const addr of addresses) {
+                const key = `${addr.filiaalnr || ''}|${addr.volledigAdres}|${addr.merchandiser}`;
+                if (grouped.has(key)) {
+                    const existing = grouped.get(key)!;
+                    existing.aantalPlaatsingen = (existing.aantalPlaatsingen || 0) + (addr.aantalPlaatsingen || 0);
+                } else {
+                    grouped.set(key, { ...addr });
+                }
+            }
+            uniqueAddresses = Array.from(grouped.values());
         }
 
         return { addresses: uniqueAddresses, drivers, driverBoxMap };

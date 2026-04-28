@@ -62,6 +62,10 @@ export default function Home() {
     const handleStartRegionChange = (region: string) => {
         setStartRegion(region);
         setIsManualStartRegion(true);
+        // If end region hasn't been manually changed yet, let it follow the start region
+        if (!isManualEndRegion) {
+            setEndRegion(region);
+        }
     };
 
     const handleEndRegionChange = (region: string) => {

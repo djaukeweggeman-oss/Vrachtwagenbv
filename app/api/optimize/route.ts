@@ -59,19 +59,27 @@ export async function POST(req: NextRequest) {
 
         const startPoint = REGIONS[startRegion];
 
-        // Geocode addresses in parallel for blazing fast speed
+        // Geocode addresses SEQUENTIALLY to respect rate limits (especially for Nominatim)
         const validAddresses: Address[] = [];
         
-        const geocodePromises = addresses.map(async (addr) => {
-            if (addr.lat && addr.lng) return addr;
-            const coords = await geocodeAddress(addr.volledigAdres);
-            if (coords) return { ...addr, ...coords };
-            console.warn('Kon adres niet vinden:', addr.volledigAdres);
-            return null;
-        });
-
-        const geocodedResults = await Promise.all(geocodePromises);
-        validAddresses.push(...(geocodedResults.filter(Boolean) as Address[]));
+        console.log(`Starting sequential geocoding for ${addresses.length} addresses...`);
+        for (const addr of addresses) {
+            if (addr.lat && addr.lng) {
+                validAddresses.push(addr);
+                continue;
+            }
+            
+            try {
+                const coords = await geocodeAddress(addr.volledigAdres);
+                if (coords) {
+                    validAddresses.push({ ...addr, ...coords });
+                } else {
+                    console.warn('Kon adres niet vinden:', addr.volledigAdres);
+                }
+            } catch (e) {
+                console.error(`Geocode error for ${addr.volledigAdres}:`, e);
+            }
+        }
 
         if (validAddresses.length === 0) {
             return NextResponse.json({
@@ -101,14 +109,15 @@ export async function POST(req: NextRequest) {
             for (const [day, addrs] of Object.entries(dayMap)) {
                 console.log(`📅 Processing day: ${day} with ${addrs.length} addresses`);
                 
-                // Deduplicate per day on volledigAdres, but sum up plaatsingen
+                // Deduplicate per day on filiaalnr + volledigAdres, summing up plaatsingen
                 const addressMap = new Map<string, Address>();
                 for (const addr of addrs) {
-                    if (addressMap.has(addr.volledigAdres)) {
-                        const existing = addressMap.get(addr.volledigAdres)!;
+                    const key = `${addr.filiaalnr}|${addr.volledigAdres}`;
+                    if (addressMap.has(key)) {
+                        const existing = addressMap.get(key)!;
                         existing.aantalPlaatsingen = (existing.aantalPlaatsingen || 0) + (addr.aantalPlaatsingen || 0);
                     } else {
-                        addressMap.set(addr.volledigAdres, { ...addr });
+                        addressMap.set(key, { ...addr });
                     }
                 }
                 
@@ -118,7 +127,7 @@ export async function POST(req: NextRequest) {
                 // Call RouteOptimizer for this day's addresses
                 let optimized;
                 try {
-                    optimized = await RouteOptimizer.optimizeRoute(startRegion, unique, { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD });
+                    optimized = await RouteOptimizer.optimizeRoute(startPoint, unique, { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD });
                     console.log(`🗺️ Route optimized for ${day}: ${optimized.stops?.length} stops`);
                 } catch (e) {
                     console.error('Route optimization failed for day', day, e);

@@ -10,7 +10,25 @@ export class RouteOptimizer {
 
     static async geocodeAddress(address: string): Promise<{ lat: number, lng: number } | null> {
         try {
-            // Use Nominatim (OpenStreetMap) - Free, but requires User-Agent and rate limiting
+            // 1. Try PDOK API (Dutch National Geocoder) - Very reliable for NL, no rate limits
+            const pdokQuery = encodeURIComponent(address.replace(', Nederland', ''));
+            const pdokUrl = `https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=${pdokQuery}&fl=centroide_ll&rows=1`;
+            
+            try {
+                const pdokRes = await fetch(pdokUrl);
+                const pdokData = await pdokRes.json();
+
+                if (pdokData?.response?.docs?.length > 0) {
+                    const match = pdokData.response.docs[0].centroide_ll.match(/POINT\(([\d.]+) ([\d.]+)\)/);
+                    if (match) {
+                        return { lat: parseFloat(match[2]), lng: parseFloat(match[1]) };
+                    }
+                }
+            } catch (e) {
+                console.warn('PDOK geocoding failed, falling back to Nominatim', e);
+            }
+
+            // 2. Fallback to Nominatim (OpenStreetMap) - Free, but requires User-Agent and rate limiting
             const query = encodeURIComponent(address);
             const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=nl&limit=1`;
 
@@ -90,7 +108,7 @@ export class RouteOptimizer {
 
         // 2. Prepare RouteXL locations array
         // RouteXL expects an array of objects: name, lat, lng
-        // The first location is the start point if not specified otherwise
+        // The first location is the start. The last location is the end (if specified).
         const locations = [
             {
                 name: "START_DEPOT",
@@ -102,7 +120,7 @@ export class RouteOptimizer {
                 }
             },
             ...validAddresses.map((addr, index) => ({
-                name: `STOP_${index}`, // Uniquely identify each stop by its true index
+                name: `STOP_${addr.filiaalnr || index}`, // Use filiaalnr if available for better matching
                 lat: addr.lat!,
                 lng: addr.lng!,
                 restrictions: {
@@ -111,6 +129,20 @@ export class RouteOptimizer {
                 }
             }))
         ];
+
+        // Add END_DEPOT if it's different from START_DEPOT, or always to ensure a loop
+        // RouteXL treats the last location as the end if there are more than 2 locations.
+        const isLoop = endPoint.lat === startPoint.lat && endPoint.lng === startPoint.lng;
+        
+        locations.push({
+            name: "END_DEPOT",
+            lat: endPoint.lat,
+            lng: endPoint.lng,
+            restrictions: {
+                ready: 0,
+                due: 999
+            }
+        });
 
         // 3. Call RouteXL API
         const username = credentials?.username || process.env.ROUTEXL_USERNAME || process.env.NEXT_PUBLIC_ROUTEXL_USERNAME;
@@ -161,28 +193,50 @@ export class RouteOptimizer {
                         filiaalnr: 'START',
                         formule: 'START',
                         straat: startPoint.address,
-                        postcode: '',
-                        plaats: startPoint.name,
+                        postcode: startPoint.postcode || '',
+                        plaats: startPoint.stad || startPoint.name,
                         volledigAdres: startPoint.address,
                         merchandiser: 'SYSTEM',
                         lat: startPoint.lat,
                         lng: startPoint.lng
                     });
+                } else if (stop.name === "END_DEPOT") {
+                    // We'll add this at the very end to avoid duplicates if it's the same as START
+                    if (!isLoop) {
+                        optimizedOrder.push({
+                            filiaalnr: 'DEPOT_END',
+                            formule: 'DEPOT',
+                            straat: endPoint.address,
+                            postcode: endPoint.postcode || '',
+                            plaats: endPoint.stad || endPoint.name,
+                            volledigAdres: endPoint.address,
+                            merchandiser: 'SYSTEM',
+                            lat: endPoint.lat,
+                            lng: endPoint.lng
+                        });
+                    }
                 } else {
-                    // Match the precise index from "STOP_{index}"
-                    const nameMatch = stop.name.match(/STOP_(\d+)/);
+                    // Match by filiaalnr first, then by STOP_{index}
+                    const nameMatch = stop.name.match(/STOP_(.+)/);
                     let match: Address | null = null;
                     
                     if (nameMatch) {
-                        const originalIndex = parseInt(nameMatch[1], 10);
-                        match = validAddresses[originalIndex];
+                        const identifier = nameMatch[1];
+                        // Try finding by filiaalnr
+                        match = validAddresses.find(a => a.filiaalnr === identifier) || null;
+                        
+                        // Fallback to index if identifier was an index
+                        if (!match && /^\d+$/.test(identifier)) {
+                            const idx = parseInt(identifier, 10);
+                            match = validAddresses[idx];
+                        }
                     }
 
-                    // Fallback to coordinate matching if name matching completely fails somehow
+                    // Fallback to coordinate matching
                     if (!match) {
                         match = validAddresses.find(a =>
-                            Math.abs(a.lat! - parseFloat(stop.lat)) < 0.001 &&
-                            Math.abs(a.lng! - parseFloat(stop.lng)) < 0.001
+                            Math.abs(a.lat! - parseFloat(stop.lat)) < 0.0001 &&
+                            Math.abs(a.lng! - parseFloat(stop.lng)) < 0.0001
                         ) || null;
                     }
 
@@ -196,6 +250,21 @@ export class RouteOptimizer {
                 if (stop.distance) totalDistanceKm = parseFloat(stop.distance); 
                 if (stop.arrival) totalDurationMin = parseFloat(stop.arrival); 
             });
+
+            // If it's a loop and we don't have the end depot yet, add it
+            if (isLoop && optimizedOrder[optimizedOrder.length - 1]?.filiaalnr !== 'START') {
+                 optimizedOrder.push({
+                    filiaalnr: 'DEPOT_END',
+                    formule: 'DEPOT',
+                    straat: endPoint.address,
+                    postcode: endPoint.postcode || '',
+                    plaats: endPoint.stad || endPoint.name,
+                    volledigAdres: endPoint.address,
+                    merchandiser: 'SYSTEM',
+                    lat: endPoint.lat,
+                    lng: endPoint.lng
+                });
+            }
 
             // --- ADD THE FINAL LEG TO END DEPOT ---
             // If the last stop isn't already the endPoint, calculate the missing distance/time
