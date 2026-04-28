@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
         console.log('🚗 Single-day route. Making one optimized route...');
 
         // Use the same logic as RouteOptimizer for consistency
-        const optimized = await RouteOptimizer.optimizeRoute(startPoint, validAddresses, { username, password });
+        const optimized = await RouteOptimizer.optimizeRoute(startPoint, validAddresses, { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD });
         return NextResponse.json(optimized);
 
     } catch (e: any) {
