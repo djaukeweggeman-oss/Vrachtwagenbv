@@ -35,6 +35,19 @@ export class RouteOptimizer {
         }
     }
 
+    // Helper to calculate distance between two coordinates in km
+    private static calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+        const R = 6371; // Earth radius in km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = 
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
     static async optimizeRoute(startDepot: any, addresses: Address[], credentials?: { username: string, password: string }, endDepot?: any): Promise<{ stops: Address[], totalDistance: number, totalDuration: number }> {
         const startPoint = startDepot;
         const endPoint = endDepot || startDepot;
@@ -183,6 +196,24 @@ export class RouteOptimizer {
                 if (stop.distance) totalDistanceKm = parseFloat(stop.distance); 
                 if (stop.arrival) totalDurationMin = parseFloat(stop.arrival); 
             });
+
+            // --- ADD THE FINAL LEG TO END DEPOT ---
+            // If the last stop isn't already the endPoint, calculate the missing distance/time
+            const lastStop = optimizedOrder[optimizedOrder.length - 1];
+            if (lastStop && (lastStop.lat !== endPoint.lat || lastStop.lng !== endPoint.lng)) {
+                // Calculate distance from last stop to end depot
+                // Use Haversine * 1.3 (typical road distance factor)
+                const finalLegKm = this.calculateHaversineDistance(
+                    lastStop.lat!, lastStop.lng!,
+                    endPoint.lat, endPoint.lng
+                ) * 1.3; 
+                
+                // Estimate time (avg 50 km/h for the final leg)
+                const finalLegMin = (finalLegKm / 50) * 60;
+                
+                totalDistanceKm += finalLegKm;
+                totalDurationMin += finalLegMin;
+            }
 
             console.log(`Optimized Route: ${optimizedOrder.length} stops`); // DEBUG
 
