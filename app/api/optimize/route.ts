@@ -128,7 +128,9 @@ export async function POST(req: NextRequest) {
                         bezoekdag: day,
                         stops: unique,
                         totalDistanceKm: 0,
+                        totalDistanceMeters: 0,
                         totalDurationMin: 0,
+                        totalDurationSeconds: 0,
                         totalPlaatsingen: totalPlaat
                     });
                     continue;
@@ -139,7 +141,9 @@ export async function POST(req: NextRequest) {
                     bezoekdag: day,
                     stops: optimized.stops,
                     totalDistanceKm: Math.round((optimized.totalDistance || 0) / 1000),
+                    totalDistanceMeters: optimized.totalDistance || 0,
                     totalDurationMin: Math.round((optimized.totalDuration || 0) / 60),
+                    totalDurationSeconds: optimized.totalDuration || 0,
                     totalPlaatsingen
                 });
             }
@@ -150,109 +154,9 @@ export async function POST(req: NextRequest) {
         // 🚗 SINGLE-DAY PATH: Original behavior - one big route
         console.log('🚗 Single-day route. Making one optimized route...');
 
-        const locations = [
-            { name: 'START_DEPOT', lat: startPoint.lat, lng: startPoint.lng, restrictions: { ready: 0, due: 999 } },
-            ...validAddresses.map((addr, idx) => ({ name: `STOP_${idx}`, lat: addr.lat, lng: addr.lng, restrictions: { ready: 0, due: 999 } }))
-        ];
-
-        // Get credentials from environment or use fallback
-        const username = ROUTEXL_USERNAME;
-        const password = ROUTEXL_PASSWORD;
-
-        console.log('🔐 RouteXL API Request:');
-        console.log(`- Using username: ${username}`);
-        console.log(`- Credentials available: ${username && password ? '✓ YES' : '✗ NO'}`);
-        console.log(`- Number of locations: ${locations.length}`);
-
-        if (!username || !password) {
-            console.error('❌ No credentials available');
-            return NextResponse.json({ error: 'Server RouteXL credentials ontbreken' }, { status: 500 });
-        }
-
-        const auth = Buffer.from(`${username}:${password}`).toString('base64');
-
-        const res = await fetch('https://api.routexl.com/tour', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Basic ${auth}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: `locations=${encodeURIComponent(JSON.stringify(locations))}`
-        });
-
-        if (!res.ok) {
-            const text = await res.text();
-            console.error('RouteXL server error:', res.status, text);
-            return NextResponse.json({ error: text || 'RouteXL fout' }, { status: res.status });
-        }
-
-        const data = await res.json();
-        if (!data.route) {
-            console.error('Geen route in RouteXL response', data);
-            return NextResponse.json({ error: 'Geen route ontvangen van RouteXL' }, { status: 500 });
-        }
-
-        const keys = Object.keys(data.route).sort((a, b) => parseInt(a) - parseInt(b));
-        const optimizedOrder: Address[] = [];
-        let totalDistanceKm = 0;
-        let totalDurationMin = 0;
-
-        for (const key of keys) {
-            const stop = data.route[key];
-            if (stop.name === 'START_DEPOT') {
-                optimizedOrder.push({ filiaalnr: 'START', formule: 'START', straat: startPoint.address, postcode: '', plaats: startPoint.name, volledigAdres: startPoint.address, merchandiser: 'SYSTEM', lat: startPoint.lat, lng: startPoint.lng });
-            } else {
-                const nameMatch = stop.name.match(/STOP_(\d+)/);
-                let match: Address | undefined = undefined;
-                
-                if (nameMatch) {
-                    const originalIndex = parseInt(nameMatch[1], 10);
-                    match = validAddresses[originalIndex];
-                }
-                
-                if (!match) {
-                    match = validAddresses.find(a => Math.abs(a.lat! - parseFloat(stop.lat)) < 0.001 && Math.abs(a.lng! - parseFloat(stop.lng)) < 0.001);
-                }
-                
-                if (match) {
-                    optimizedOrder.push(match);
-                } else {
-                    console.warn('Could not match stop back to address:', stop.name);
-                }
-            }
-
-            if (stop.distance) totalDistanceKm = parseFloat(stop.distance);
-            if (stop.arrival) totalDurationMin = parseFloat(stop.arrival);
-        }
-
-        // Ensure Arnhem as final stop (existing behavior)
-        const arnhemRegion = REGIONS.ARNHEM;
-        const arnhemAddress: Address = {
-            filiaalnr: 'ARNHEM',
-            formule: 'ARNHEM',
-            straat: arnhemRegion.address,
-            postcode: '',
-            plaats: arnhemRegion.name,
-            volledigAdres: arnhemRegion.address,
-            merchandiser: 'SYSTEM',
-            lat: arnhemRegion.lat,
-            lng: arnhemRegion.lng
-        };
-
-        // Remove any existing synthetic ARNHEM depot entries (by filiaalnr or exact coordinates only)
-        // Do NOT filter by city name - real stops in Arnhem should be kept!
-        const filtered = optimizedOrder.filter(s => {
-            if (!s) return false;
-            if (s.filiaalnr === 'ARNHEM') return false; // synthetic depot only
-            if (s.lat && s.lng) {
-                if (Math.abs(s.lat - arnhemRegion.lat) < 0.0005 && Math.abs(s.lng - arnhemRegion.lng) < 0.0005) return false;
-            }
-            return true;
-        });
-
-        filtered.push(arnhemAddress);
-
-        return NextResponse.json({ stops: filtered, totalDistance: totalDistanceKm * 1000, totalDuration: totalDurationMin * 60 });
+        // Use the same logic as RouteOptimizer for consistency
+        const optimized = await RouteOptimizer.optimizeRoute(startPoint, validAddresses, { username, password });
+        return NextResponse.json(optimized);
 
     } catch (e: any) {
         console.error('Optimize API error', e);
