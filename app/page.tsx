@@ -160,7 +160,9 @@ export default function Home() {
                         bezoekdag: dag,
                         stops: result.stops,
                         totalDistanceKm: Math.round(result.totalDistance / 1000),
+                        totalDistanceMeters: result.totalDistance,
                         totalDurationMin: Math.round(result.totalDuration / 60),
+                        totalDurationSeconds: result.totalDuration,
                         totalPlaatsingen: dayAddrs.reduce((sum, a) => sum + (a.aantalPlaatsingen || 0), 0),
                         boxName: dayBoxName
                     });
@@ -329,11 +331,15 @@ export default function Home() {
                                         </div>
                                         <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                                             <p className="text-blue-100 text-sm font-medium">Totale Afstand</p>
-                                            <p className="text-3xl font-bold mt-1">{Math.round(multiDayRoutes.reduce((sum, d) => sum + d.totalDistanceKm, 0)).toLocaleString('nl-NL')} km</p>
+                                            <p className="text-3xl font-bold mt-1">
+                                                {Math.round(multiDayRoutes.reduce((sum, d) => sum + d.totalDistanceMeters, 0) / 1000).toLocaleString('nl-NL')} km
+                                            </p>
                                         </div>
                                         <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                                             <p className="text-blue-100 text-sm font-medium">Totale Tijd</p>
-                                            <p className="text-3xl font-bold mt-1">{Math.round(multiDayRoutes.reduce((sum, d) => sum + d.totalDurationMin, 0) / 60)}u</p>
+                                            <p className="text-3xl font-bold mt-1">
+                                                {Math.round(multiDayRoutes.reduce((sum, d) => sum + d.totalDurationSeconds, 0) / 3600)}u
+                                            </p>
                                         </div>
                                         <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                                             <p className="text-blue-100 text-sm font-medium">Totale Plaatsingen</p>
@@ -346,8 +352,8 @@ export default function Home() {
                                 {sortDayRoutes(multiDayRoutes).map(day => {
                                     // Count only real stops (exclude START and ARNHEM/end)
                                     const realStopsCount = day.stops.filter(stop => 
-                                        stop.filiaalnr !== 'START' && stop.filiaalnr !== 'ARNHEM' && 
-                                        stop.formule !== 'START' && stop.formule !== 'ARNHEM'
+                                        stop.filiaalnr !== 'START' && stop.filiaalnr !== 'DEPOT_END' && 
+                                        stop.formule !== 'START' && stop.formule !== 'DEPOT'
                                     ).length;
 
                                     return (

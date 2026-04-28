@@ -24,7 +24,9 @@ export interface DayRoute {
     bezoekdag: string;
     stops: Address[];
     totalDistanceKm: number;
+    totalDistanceMeters: number;
     totalDurationMin: number;
+    totalDurationSeconds: number;
     totalPlaatsingen: number;
     boxName?: string;
 }
