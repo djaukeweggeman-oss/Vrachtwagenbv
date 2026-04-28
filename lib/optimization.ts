@@ -123,11 +123,15 @@ export class RouteOptimizer {
 
         const isLoop = endPoint.lat === startPoint.lat && endPoint.lng === startPoint.lng;
         
-        locations.push({
-            name: "END_DEPOT",
-            lat: Number(endPoint.lat.toFixed(6)),
-            lng: Number(endPoint.lng.toFixed(6))
-        });
+        // Only add END_DEPOT if it's different from START_DEPOT OR if we have space (max 10 for some plans)
+        // If it's a loop and we're already at 10 locations (1 start + 9 stops), adding END_DEPOT would make it 11 and fail.
+        if (!isLoop || locations.length < 10) {
+            locations.push({
+                name: "END_DEPOT",
+                lat: Number(endPoint.lat.toFixed(6)),
+                lng: Number(endPoint.lng.toFixed(6))
+            });
+        }
 
         // 3. Call RouteXL API
         const username = credentials?.username || process.env.ROUTEXL_USERNAME || process.env.NEXT_PUBLIC_ROUTEXL_USERNAME;
