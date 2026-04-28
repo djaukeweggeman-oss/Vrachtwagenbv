@@ -127,7 +127,11 @@ export async function POST(req: NextRequest) {
                 // Call RouteOptimizer for this day's addresses
                 let optimized;
                 try {
-                    optimized = await RouteOptimizer.optimizeRoute(startPoint, unique, { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD });
+                    const credentials = (ROUTEXL_USERNAME && ROUTEXL_PASSWORD) 
+                        ? { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD } 
+                        : undefined;
+                        
+                    optimized = await RouteOptimizer.optimizeRoute(startPoint, unique, credentials);
                     console.log(`🗺️ Route optimized for ${day}: ${optimized.stops?.length} stops`);
                 } catch (e) {
                     console.error('Route optimization failed for day', day, e);
@@ -164,7 +168,11 @@ export async function POST(req: NextRequest) {
         console.log('🚗 Single-day route. Making one optimized route...');
 
         // Use the same logic as RouteOptimizer for consistency
-        const optimized = await RouteOptimizer.optimizeRoute(startPoint, validAddresses, { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD });
+        const credentials = (ROUTEXL_USERNAME && ROUTEXL_PASSWORD) 
+            ? { username: ROUTEXL_USERNAME, password: ROUTEXL_PASSWORD } 
+            : undefined;
+            
+        const optimized = await RouteOptimizer.optimizeRoute(startPoint, validAddresses, credentials);
         return NextResponse.json(optimized);
 
     } catch (e: any) {
