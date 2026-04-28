@@ -10,6 +10,7 @@ export interface Address {
     lng?: number;
     aantalPlaatsingen?: number;
     bezoekdag?: string;
+    box?: string;
 }
 
 export interface RouteResponse {
@@ -25,6 +26,7 @@ export interface DayRoute {
     totalDistanceKm: number;
     totalDurationMin: number;
     totalPlaatsingen: number;
+    boxName?: string;
 }
 
 export interface MultiDayRouteResponse {

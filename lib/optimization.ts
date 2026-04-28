@@ -35,8 +35,9 @@ export class RouteOptimizer {
         }
     }
 
-    static async optimizeRoute(startRegion: keyof typeof REGIONS, addresses: Address[], credentials?: { username: string, password: string }): Promise<{ stops: Address[], totalDistance: number, totalDuration: number }> {
-        const startPoint = REGIONS[startRegion];
+    static async optimizeRoute(startDepot: any, addresses: Address[], credentials?: { username: string, password: string }, endDepot?: any): Promise<{ stops: Address[], totalDistance: number, totalDuration: number }> {
+        const startPoint = startDepot;
+        const endPoint = endDepot || startDepot;
 
         // 1. Geocode all addresses with RATE LIMITING
         // Nominatim strictly forbids bulk unrestricted scraping. We must throttle.
@@ -185,36 +186,50 @@ export class RouteOptimizer {
 
             console.log(`Optimized Route: ${optimizedOrder.length} stops`); // DEBUG
 
-            // Ensure Arnhem (Vlamoven 7) is always the final stop regardless of start
-            const arnhemRegion = REGIONS.ARNHEM;
-
-            const arnhemAddress: Address = {
-                filiaalnr: 'ARNHEM',
-                formule: 'ARNHEM',
-                straat: arnhemRegion.address,
-                postcode: '',
-                plaats: arnhemRegion.name,
-                volledigAdres: arnhemRegion.address,
+            const startAddress: Address = {
+                filiaalnr: 'START',
+                formule: 'DEPOT',
+                straat: startPoint.address,
+                postcode: startPoint.postcode || '',
+                plaats: startPoint.stad || startPoint.name,
+                volledigAdres: `${startPoint.address}, ${startPoint.postcode || ''} ${startPoint.stad || ''}`.trim(),
                 merchandiser: 'SYSTEM',
-                lat: arnhemRegion.lat,
-                lng: arnhemRegion.lng
+                lat: startPoint.lat,
+                lng: startPoint.lng
             };
 
-            // Remove any existing synthetic ARNHEM depot entries (by filiaalnr or exact coordinates only)
-            // Do NOT filter by city name - real stops in Arnhem should be kept!
-            const filtered = optimizedOrder.filter(s => {
+            const endAddress: Address = {
+                filiaalnr: 'DEPOT_END',
+                formule: 'DEPOT',
+                straat: endPoint.address,
+                postcode: endPoint.postcode || '',
+                plaats: endPoint.stad || endPoint.name,
+                volledigAdres: `${endPoint.address}, ${endPoint.postcode || ''} ${endPoint.stad || ''}`.trim(),
+                merchandiser: 'SYSTEM',
+                lat: endPoint.lat,
+                lng: endPoint.lng
+            };
+
+            // Filter out existing synthetic entries and the depot itself if it appears in the stops
+            const coreStops = optimizedOrder.filter(s => {
                 if (!s) return false;
-                if (s.filiaalnr === 'ARNHEM') return false; // synthetic depot only
+                // Remove existing start/end markers
+                if (s.filiaalnr === 'START' || s.filiaalnr === 'DEPOT_END') return false;
+                
+                // Also remove any stop that is exactly at the start or end depot location (to avoid duplicates)
                 if (s.lat && s.lng) {
-                    if (Math.abs(s.lat - arnhemRegion.lat) < 0.0005 && Math.abs(s.lng - arnhemRegion.lng) < 0.0005) return false;
+                    const distStart = Math.sqrt(Math.pow(s.lat - startPoint.lat, 2) + Math.pow(s.lng - startPoint.lng, 2));
+                    const distEnd = Math.sqrt(Math.pow(s.lat - endPoint.lat, 2) + Math.pow(s.lng - endPoint.lng, 2));
+                    if (distStart < 0.0005 || distEnd < 0.0005) return false;
                 }
                 return true;
             });
 
-            filtered.push(arnhemAddress);
+            // Combine: [START] -> [CORE STOPS] -> [END]
+            const finalStops = [startAddress, ...coreStops, endAddress];
 
             return {
-                stops: filtered,
+                stops: finalStops,
                 totalDistance: totalDistanceKm * 1000, // Convert km to meters
                 totalDuration: totalDurationMin * 60  // Convert minutes to seconds
             };

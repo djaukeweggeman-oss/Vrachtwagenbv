@@ -38,13 +38,13 @@ function excelDateToDayName(value: any): string | undefined {
     }
 }
 
-export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Address[], drivers: string[] }> => {
+export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Address[], drivers: string[], driverBoxMap: Record<string, string> }> => {
     try {
         console.log("📊 Starting SUPER ROBUST Excel processing...");
         const workbook = XLSX.read(buffer, { type: 'buffer' });
         console.log("📋 Available sheets:", workbook.SheetNames);
 
-        let globalBestResult = { addresses: [] as Address[], drivers: [] as string[], sheetName: "" };
+        let globalBestResult = { addresses: [] as Address[], drivers: [] as string[], driverBoxMap: {} as Record<string, string>, sheetName: "" };
 
         // Priority for sheet names
         const sortedSheets = [...workbook.SheetNames].sort((a, b) => {
@@ -87,6 +87,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                 const filiaalnrIdx = findCol(['FILIAAL', 'SHOP', 'STORE', 'WINKEL']);
                 const formuleIdx = findCol(['FORMULE', 'BRAND', 'KRT']);
                 const bezoekdagIdx = findCol(['BEZOEK', 'DAG', 'DAY']);
+                const boxIdx = findCol(['BOX', 'DEPOT', 'OPSLAGBOX']);
 
                 // Product columns (Ja/Nee for each brand) come AFTER 'Te verwijderen'
                 // 'Te verwijderen' is the last standard header (col 11 in actual file)
@@ -124,6 +125,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
                     const filiaalnr = filiaalnrIdx >= 0 ? String(row[filiaalnrIdx] || '').trim() : '';
                     const formule = formuleIdx >= 0 ? String(row[formuleIdx] || '').trim() : '';
                     const bezoekdag = bezoekdagIdx >= 0 ? excelDateToDayName(row[bezoekdagIdx]) : undefined;
+                    const box = boxIdx >= 0 ? String(row[boxIdx] || '').trim() : undefined;
                     // Include postcode so geocoding works even when plaatsnaam is empty
                     const volledigAdres = [adres, postcode, plaats, 'Nederland'].filter(Boolean).join(', ');
 
@@ -136,10 +138,28 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
                     resultAddrs.push({
                         filiaalnr, formule, straat: adres, postcode, plaats,
-                        merchandiser, volledigAdres, aantalPlaatsingen, bezoekdag,
+                        merchandiser, volledigAdres, aantalPlaatsingen, bezoekdag, box,
                     });
                 }
-                return { addresses: resultAddrs, drivers: Array.from(resultDrivers).sort() };
+                // Build driver → box mapping (use the most common box per driver)
+                const driverBoxCount: Record<string, Record<string, number>> = {};
+                for (const addr of resultAddrs) {
+                    if (addr.box && addr.merchandiser) {
+                        if (!driverBoxCount[addr.merchandiser]) driverBoxCount[addr.merchandiser] = {};
+                        driverBoxCount[addr.merchandiser][addr.box] = (driverBoxCount[addr.merchandiser][addr.box] || 0) + 1;
+                    }
+                }
+                const driverBoxMap: Record<string, string> = {};
+                for (const [driver, boxes] of Object.entries(driverBoxCount)) {
+                    // Pick the most frequent box for each driver
+                    let maxCount = 0;
+                    let bestBox = '';
+                    for (const [box, count] of Object.entries(boxes)) {
+                        if (count > maxCount) { maxCount = count; bestBox = box; }
+                    }
+                    if (bestBox) driverBoxMap[driver] = bestBox;
+                }
+                return { addresses: resultAddrs, drivers: Array.from(resultDrivers).sort(), driverBoxMap };
             };
 
             // Scan first 50 rows for the best possible header in this sheet
@@ -154,7 +174,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             }
 
             if (sheetBest.addresses.length > globalBestResult.addresses.length) {
-                globalBestResult = { ...sheetBest, sheetName };
+                globalBestResult = { ...sheetBest, driverBoxMap: sheetBest.driverBoxMap || {}, sheetName };
                 // Optimization: if we found a lot of data, we are likely done
                 if (sheetBest.addresses.length > 100) break;
             }
@@ -167,7 +187,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
 
         console.log(`✅ Success! Found ${globalBestResult.addresses.length} addresses in sheet "${globalBestResult.sheetName}"`);
 
-        const { addresses, drivers } = globalBestResult;
+        const { addresses, drivers, driverBoxMap } = globalBestResult;
         const hasDayInfo = addresses.some(a => !!a.bezoekdag);
         let uniqueAddresses: Address[];
 
@@ -194,7 +214,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             );
         }
 
-        return { addresses: uniqueAddresses, drivers };
+        return { addresses: uniqueAddresses, drivers, driverBoxMap };
 
     } catch (error) {
         console.error("💥 Excel processing error:", error);

@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { Address } from '@/types';
 
 interface UploadZoneProps {
-    onUploadComplete: (data: { addresses: Address[], drivers: string[] }) => void;
+    onUploadComplete: (data: { addresses: Address[], drivers: string[], driverBoxMap: Record<string, string> }) => void;
 }
 
 export function UploadZone({ onUploadComplete }: UploadZoneProps) {

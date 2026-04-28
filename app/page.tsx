@@ -5,10 +5,11 @@ import dynamic from 'next/dynamic';
 import { UploadZone } from '@/components/UploadZone';
 import { ConfigPanel } from '@/components/ConfigPanel';
 import { RouteList } from '@/components/RouteList';
-import { REGIONS } from '@/lib/regions';
+import { REGIONS, findRegionKey } from '@/lib/regions';
 import { sortDayRoutes } from '@/lib/utils';
 import { Address, RouteResponse, DayRoute } from '@/types';
 import { MapPin, Truck, ChevronRight, User } from 'lucide-react';
+import { RouteOptimizer } from '@/lib/optimization';
 
 const LeafletMap = dynamic(() => import('@/components/LeafletMap'), {
     ssr: false,
@@ -16,80 +17,167 @@ const LeafletMap = dynamic(() => import('@/components/LeafletMap'), {
 });
 
 export default function Home() {
-    // State 
+    // State
     const [addresses, setAddresses] = useState<Address[]>([]);
     const [drivers, setDrivers] = useState<string[]>([]);
+    const [driverBoxMap, setDriverBoxMap] = useState<Record<string, string>>({});
     const [selectedDriver, setSelectedDriver] = useState<string>("");
-    const [startRegion, setStartRegion] = useState<keyof typeof REGIONS>('ARNHEM');
+    const [startRegion, setStartRegion] = useState<string>("Shurgard Arnhem");
+    const [endRegion, setEndRegion] = useState<string>("Shurgard Arnhem");
+    const [customStartAdres, setCustomStartAdres] = useState<string>("");
+    const [customEndAdres, setCustomEndAdres] = useState<string>("");
+    const [isManualStartRegion, setIsManualStartRegion] = useState<boolean>(false);
+    const [isManualEndRegion, setIsManualEndRegion] = useState<boolean>(false);
+    const [step, setStep] = useState<number>(1);
+    const [error, setError] = useState<string>("");
+    const [isProcessing, setIsProcessing] = useState<boolean>(false);
     const [routeData, setRouteData] = useState<RouteResponse | null>(null);
     const [multiDayRoutes, setMultiDayRoutes] = useState<DayRoute[] | null>(null);
 
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [step, setStep] = useState<1 | 2 | 3>(1); // 1=Upload, 2=Select Driver/Region, 3=Result
-
-    const handleUploadComplete = (data: { addresses: Address[], drivers: string[] }) => {
+    // Bij upload: addresses, drivers, driverBoxMap vullen
+    const handleUploadComplete = (data: { addresses: Address[], drivers: string[], driverBoxMap: Record<string, string> }) => {
         setAddresses(data.addresses);
         setDrivers(data.drivers);
+        setDriverBoxMap(data.driverBoxMap || {});
+        setSelectedDriver("");
         setStep(2);
-        setError(null);
+        setError("");
+        setRouteData(null);
+        setMultiDayRoutes(null);
+    };
+
+    // Automatisch box selecteren bij driverkeuze
+    const handleDriverChange = (driver: string) => {
+        setSelectedDriver(driver);
+        setIsManualStartRegion(false);
+        setIsManualEndRegion(false);
+        const box = driverBoxMap[driver];
+        if (box) {
+            const regionKey = findRegionKey(box);
+            setStartRegion(regionKey);
+            setEndRegion(regionKey);
+        }
+    };
+
+    const handleStartRegionChange = (region: string) => {
+        setStartRegion(region);
+        setIsManualStartRegion(true);
+    };
+
+    const handleEndRegionChange = (region: string) => {
+        setEndRegion(region);
+        setIsManualEndRegion(true);
+    };
+
+    // Reset
+    const reset = () => {
+        setStep(1);
+        setAddresses([]);
+        setDrivers([]);
+        setDriverBoxMap({});
+        setSelectedDriver("");
+        setStartRegion("Shurgard Arnhem");
+        setEndRegion("Shurgard Arnhem");
+        setCustomStartAdres("");
+        setCustomEndAdres("");
+        setIsManualStartRegion(false);
+        setIsManualEndRegion(false);
+        setError("");
+        setRouteData(null);
+        setMultiDayRoutes(null);
+        setIsProcessing(false);
     };
 
     const handleCalculateRoute = async () => {
-        if (!selectedDriver) {
-            setError("Selecteer eerst een bestuurder.");
-            return;
-        }
-
         setIsProcessing(true);
-        setError(null);
-
+        setError("");
         try {
-            // Filter addresses for the selected driver
             const driverAddresses = addresses.filter(a => a.merchandiser === selectedDriver);
-
-            console.log(`🚗 Selected driver: ${selectedDriver}`);
-            console.log(`📍 Found ${driverAddresses.length} addresses for this driver`);
-
             if (driverAddresses.length === 0) {
-                throw new Error(`Geen adressen gevonden voor ${selectedDriver}`);
+                throw new Error("Geen adressen gevonden voor deze chauffeur.");
             }
 
-            console.log(`🗺️ Starting route optimization from ${startRegion} (server-side)...`);
-            const res = await fetch('/api/optimize', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ startRegion, addresses: driverAddresses })
-            });
+            // --- RESOLVE START & END DEPOTS ---
+            let finalStartDepot: any;
+            let finalEndDepot: any;
 
-            if (!res.ok) {
-                const err = await res.text();
-                throw new Error(err || 'Route optimalisatie faalde');
-            }
-
-            const result = await res.json();
-            console.log(`✅ Route optimization complete:`, result);
-            if (result.days) {
-                setMultiDayRoutes(result.days);
+            // Resolve Start
+            if (startRegion === 'CUSTOM') {
+                if (!customStartAdres.trim()) throw new Error("Voer een startadres in.");
+                const coords = await RouteOptimizer.geocodeAddress(customStartAdres);
+                if (!coords) throw new Error("Kon het startadres niet vinden.");
+                finalStartDepot = { name: 'Eigen Startpunt', address: customStartAdres, ...coords };
             } else {
-                setRouteData(result);
+                finalStartDepot = REGIONS[startRegion];
             }
-            setStep(3);
-        } catch (err: any) {
-            console.error(`❌ Route calculation error:`, err);
-            setError(err.message || 'Er is een fout opgetreden bij het berekenen van de route.');
+
+            // Resolve End
+            if (endRegion === 'CUSTOM') {
+                if (!customEndAdres.trim()) throw new Error("Voer een eindadres in.");
+                const coords = await RouteOptimizer.geocodeAddress(customEndAdres);
+                if (!coords) throw new Error("Kon het eindadres niet vinden.");
+                finalEndDepot = { name: 'Eigen Eindpunt', address: customEndAdres, ...coords };
+            } else {
+                finalEndDepot = REGIONS[endRegion];
+            }
+
+            // Check if we have day information for multi-day planning
+            const hasBezoekdag = driverAddresses.some(a => !!a.bezoekdag);
+
+            if (hasBezoekdag) {
+                // Group by day
+                const daysMap = new Map<string, Address[]>();
+                driverAddresses.forEach(addr => {
+                    const dag = addr.bezoekdag || "Onbekend";
+                    if (!daysMap.has(dag)) daysMap.set(dag, []);
+                    daysMap.get(dag)!.push(addr);
+                });
+
+                const dayResults: DayRoute[] = [];
+                for (const [dag, dayAddrs] of Array.from(daysMap.entries())) {
+                    // Determine the correct box for THIS specific day
+                    let dayStartDepot = finalStartDepot;
+                    let dayEndDepot = finalEndDepot;
+                    let dayBoxName = startRegion === 'CUSTOM' ? 'Eigen Adres' : startRegion;
+
+                    // Only use day-specific boxes if the user HAS NOT manually overridden the region
+                    if (!isManualStartRegion || !isManualEndRegion) {
+                        const dayBox = dayAddrs.find(a => !!a.box)?.box;
+                        if (dayBox) {
+                            const dayRegionKey = findRegionKey(dayBox);
+                            if (!isManualStartRegion) {
+                                dayStartDepot = REGIONS[dayRegionKey];
+                                dayBoxName = dayRegionKey;
+                            }
+                            if (!isManualEndRegion) {
+                                dayEndDepot = REGIONS[dayRegionKey];
+                            }
+                        }
+                    }
+
+                    const result = await RouteOptimizer.optimizeRoute(dayStartDepot, dayAddrs, undefined, dayEndDepot);
+                    dayResults.push({
+                        bezoekdag: dag,
+                        stops: result.stops,
+                        totalDistanceKm: Math.round(result.totalDistance / 1000),
+                        totalDurationMin: Math.round(result.totalDuration / 60),
+                        totalPlaatsingen: dayAddrs.reduce((sum, a) => sum + (a.aantalPlaatsingen || 0), 0),
+                        boxName: dayBoxName
+                    });
+                }
+                setMultiDayRoutes(dayResults);
+                setStep(3);
+            } else {
+                const result = await RouteOptimizer.optimizeRoute(finalStartDepot, driverAddresses, undefined, finalEndDepot);
+                setRouteData(result);
+                setStep(3);
+            }
+        } catch (e: any) {
+            console.error("Route calculation error:", e);
+            setError(e.message || "Er is een fout opgetreden bij het berekenen van de route.");
         } finally {
             setIsProcessing(false);
         }
-    };
-
-    const reset = () => {
-        setAddresses([]);
-        setDrivers([]);
-        setSelectedDriver("");
-        setRouteData(null);
-        setStep(1);
-        setError(null);
     };
 
     return (
@@ -145,7 +233,7 @@ export default function Home() {
                                     <User className="absolute left-3 top-3.5 h-5 w-5 text-slate-400" />
                                     <select
                                         value={selectedDriver}
-                                        onChange={(e) => setSelectedDriver(e.target.value)}
+                                        onChange={(e) => handleDriverChange(e.target.value)}
                                         className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all appearance-none text-lg text-slate-700 font-medium"
                                     >
                                         <option value="" disabled>Selecteer een chauffeur...</option>
@@ -161,10 +249,42 @@ export default function Home() {
 
                             {/* Region Selection */}
                             <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-slate-700 uppercase tracking-wider">
-                                    Startpunt
-                                </label>
-                                <ConfigPanel selectedRegion={startRegion} onRegionChange={setStartRegion} />
+                                <ConfigPanel 
+                                    selectedStartRegion={startRegion} 
+                                    selectedEndRegion={endRegion}
+                                    customStartAdres={customStartAdres}
+                                    customEndAdres={customEndAdres}
+                                    onStartRegionChange={handleStartRegionChange}
+                                    onEndRegionChange={handleEndRegionChange}
+                                    onCustomStartChange={setCustomStartAdres}
+                                    onCustomEndChange={setCustomEndAdres}
+                                />
+                                {selectedDriver && driverBoxMap[selectedDriver] && (!isManualStartRegion || !isManualEndRegion) && (
+                                    <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-pulse"></span>
+                                        Standaard gekoppeld aan box: <span className="font-semibold">{driverBoxMap[selectedDriver]}</span>
+                                    </div>
+                                )}
+                                {(isManualStartRegion || isManualEndRegion) && (
+                                    <div className="text-xs text-orange-600 mt-1 font-medium flex items-center gap-1">
+                                        <span>⚠️ Handmatig aangepast</span>
+                                        <button 
+                                            onClick={() => {
+                                                const box = driverBoxMap[selectedDriver];
+                                                if (box) {
+                                                    const regionKey = findRegionKey(box);
+                                                    setStartRegion(regionKey);
+                                                    setEndRegion(regionKey);
+                                                    setIsManualStartRegion(false);
+                                                    setIsManualEndRegion(false);
+                                                }
+                                            }}
+                                            className="ml-2 text-[10px] underline hover:text-orange-700"
+                                        >
+                                            Herstellen
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Action Button */}
@@ -237,7 +357,11 @@ export default function Home() {
                                             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                                                 <div className="flex-shrink-0">
                                                     <h3 className="text-xl md:text-2xl font-bold text-slate-900">{day.bezoekdag}</h3>
-                                                    <p className="text-sm text-slate-600 mt-1">{realStopsCount} stops</p>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-sm text-slate-600">{realStopsCount} stops</span>
+                                                        <span className="text-slate-300">•</span>
+                                                        <span className="text-sm font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">Box: {day.boxName}</span>
+                                                    </div>
                                                 </div>
                                                 <div className="grid grid-cols-3 gap-2 md:gap-4 md:flex">
                                                     <div className="text-center md:text-right">
@@ -276,9 +400,14 @@ export default function Home() {
                                     );
                                 })}
 
-                                <button onClick={reset} className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-blue-600 hover:bg-blue-50 rounded-xl font-bold transition-all">
-                                    ← Nieuwe Planning
-                                </button>
+                                <div className="flex flex-col sm:flex-row gap-4">
+                                    <button onClick={() => setStep(2)} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100">
+                                        ⚙️ Aanpassingen maken
+                                    </button>
+                                    <button onClick={reset} className="flex-1 py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-blue-600 hover:bg-blue-50 rounded-xl font-bold transition-all">
+                                        ← Nieuwe Planning
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
@@ -329,7 +458,14 @@ export default function Home() {
                                         </div>
                                     </div>
 
-                                    <button onClick={reset} className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 rounded-xl font-bold transition-all">Nieuwe Planning</button>
+                                    <div className="flex flex-col gap-3">
+                                        <button onClick={() => setStep(2)} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100">
+                                            ⚙️ Aanpassingen maken
+                                        </button>
+                                        <button onClick={reset} className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 rounded-xl font-bold transition-all">
+                                            Nieuwe Planning
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="lg:col-span-2 min-h-[500px] lg:h-[calc(100vh-140px)] sticky top-8">

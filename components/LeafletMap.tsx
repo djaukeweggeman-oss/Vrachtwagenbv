@@ -143,7 +143,7 @@ export default function LeafletMap({ route }: MapProps) {
                 {/* Markers */}
                 {validRoute.map((stop, index) => {
                     const isStart = stop.filiaalnr === 'START';
-                    const isEnd = stop.filiaalnr === 'ARNHEM';
+                    const isEnd = stop.filiaalnr === 'DEPOT_END';
 
                     let label: string;
                     let color: string;

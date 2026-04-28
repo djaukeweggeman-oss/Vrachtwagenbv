@@ -9,9 +9,8 @@ interface RouteListProps {
 export function RouteList({ route }: RouteListProps) {
     if (!route || route.length === 0) return null;
 
-    // Filter out START and ARNHEM/END stops for counting actual visits
     const realStops = route.filter(stop => 
-        stop.filiaalnr !== 'START' && stop.filiaalnr !== 'ARNHEM' && stop.formule !== 'START' && stop.formule !== 'ARNHEM'
+        stop.filiaalnr !== 'START' && stop.filiaalnr !== 'DEPOT_END' && stop.formule !== 'DEPOT'
     );
 
     // Group by address and sum plaatsingen for display (excluding START/END)
@@ -50,8 +49,8 @@ export function RouteList({ route }: RouteListProps) {
                             <div className="flex items-start justify-between gap-2">
                                 <div className="flex-1">
                                     <h3 className="font-semibold text-gray-900 truncate text-sm md:text-base">
-                                        {stop.formule === 'START' ? 'Startpunt' : stop.formule === 'ARNHEM' ? 'Eindpunt Arnhem' : stop.formule || 'Winkel'}
-                                        {stop.filiaalnr !== 'START' && stop.filiaalnr !== 'ARNHEM' && <span className="text-muted-foreground font-normal ml-2 text-xs md:text-sm">#{stop.filiaalnr}</span>}
+                                        {stop.filiaalnr === 'START' ? 'Startpunt (Box)' : stop.filiaalnr === 'DEPOT_END' ? 'Eindpunt (Box)' : stop.formule || 'Winkel'}
+                                        {stop.filiaalnr !== 'START' && stop.filiaalnr !== 'DEPOT_END' && <span className="text-muted-foreground font-normal ml-2 text-xs md:text-sm">#{stop.filiaalnr}</span>}
                                     </h3>
                                     <p className="text-xs md:text-sm text-gray-600 mt-0.5 flex items-center gap-1.5">
                                         <MapPin className="w-3 h-3 md:w-3.5 md:h-3.5 shrink-0 text-gray-400" />
