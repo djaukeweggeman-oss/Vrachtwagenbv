@@ -163,7 +163,7 @@ export const processExcel = async (buffer: ArrayBuffer): Promise<{ addresses: Ad
             };
 
             // Scan first 50 rows for the best possible header in this sheet
-            let sheetBest = { addresses: [] as Address[], drivers: [] as string[] };
+            let sheetBest = { addresses: [] as Address[], drivers: [] as string[], driverBoxMap: {} as Record<string, string> };
             for (let r = 0; r < Math.min(allRows.length, 50); r++) {
                 const res = parseWithHeader(r);
                 if (res && res.addresses.length > sheetBest.addresses.length) {
