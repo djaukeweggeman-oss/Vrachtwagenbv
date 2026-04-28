@@ -108,40 +108,25 @@ export class RouteOptimizer {
 
         // 2. Prepare RouteXL locations array
         // RouteXL expects an array of objects: name, lat, lng
-        // The first location is the start. The last location is the end (if specified).
         const locations = [
             {
                 name: "START_DEPOT",
-                lat: startPoint.lat,
-                lng: startPoint.lng,
-                restrictions: {
-                    ready: 0,
-                    due: 999
-                }
+                lat: Number(startPoint.lat.toFixed(6)),
+                lng: Number(startPoint.lng.toFixed(6))
             },
             ...validAddresses.map((addr, index) => ({
-                name: `STOP_${addr.filiaalnr || index}`, // Use filiaalnr if available for better matching
-                lat: addr.lat!,
-                lng: addr.lng!,
-                restrictions: {
-                    ready: 0,
-                    due: 999
-                }
+                name: `STOP_${addr.filiaalnr || index}`,
+                lat: Number(addr.lat!.toFixed(6)),
+                lng: Number(addr.lng!.toFixed(6))
             }))
         ];
 
-        // Add END_DEPOT if it's different from START_DEPOT, or always to ensure a loop
-        // RouteXL treats the last location as the end if there are more than 2 locations.
         const isLoop = endPoint.lat === startPoint.lat && endPoint.lng === startPoint.lng;
         
         locations.push({
             name: "END_DEPOT",
-            lat: endPoint.lat,
-            lng: endPoint.lng,
-            restrictions: {
-                ready: 0,
-                due: 999
-            }
+            lat: Number(endPoint.lat.toFixed(6)),
+            lng: Number(endPoint.lng.toFixed(6))
         });
 
         // 3. Call RouteXL API
@@ -149,9 +134,11 @@ export class RouteOptimizer {
         const password = credentials?.password || process.env.ROUTEXL_PASSWORD || process.env.NEXT_PUBLIC_ROUTEXL_PASSWORD;
 
         if (!username || !password) {
+            console.error("RouteXL credentials missing. Check .env.local");
             throw new Error("RouteXL inloggegevens ontbreken. Stel ROUTEXL_USERNAME en ROUTEXL_PASSWORD in in .env.local.");
         }
 
+        console.log(`Calling RouteXL for ${username} with ${locations.length} locations...`);
         const auth = btoa(`${username}:${password}`);
 
         try {
@@ -159,7 +146,8 @@ export class RouteOptimizer {
                 method: 'POST',
                 headers: {
                     'Authorization': `Basic ${auth}`,
-                    'Content-Type': 'application/x-www-form-urlencoded'
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'User-Agent': 'VrachtwagenBV-RoutePlanner/1.0'
                 },
                 body: `locations=${encodeURIComponent(JSON.stringify(locations))}`
             });

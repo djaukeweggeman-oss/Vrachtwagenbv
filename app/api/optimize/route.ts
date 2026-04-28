@@ -3,9 +3,9 @@ import { Address, DayRoute } from '@/types';
 import { REGIONS } from '@/lib/regions';
 import { RouteOptimizer } from '@/lib/optimization';
 
-// RouteXL API credentials - fallback hardcoded values
-const ROUTEXL_USERNAME = process.env.ROUTEXL_USERNAME || 'Vrachtwagenbv';
-const ROUTEXL_PASSWORD = process.env.ROUTEXL_PASSWORD || 'muhpev-0nawmu-Gaqkis';
+// RouteXL API credentials - must be set in .env.local
+const ROUTEXL_USERNAME = process.env.ROUTEXL_USERNAME;
+const ROUTEXL_PASSWORD = process.env.ROUTEXL_PASSWORD;
 
 // Helper to respect Nominatim rate limits (absolute max 1 request per second)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
